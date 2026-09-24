@@ -1,0 +1,44 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+*.egg-info/
+
+# --- Virtual environment ---
+.venv/
+venv/
+
+# --- Environment / secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Runtime data & generated output ---
+*.db
+*.sqlite
+*.sqlite3
+Data/Raw/
+Output/
+
+# --- OS / editor ---
+.DS_Store
+.vscode/
+.idea/
+
+# --- Local tooling state (not project source) ---
+.kilo/
+
+# --- Stray empty artifacts from earlier collection runs ---
+hydrogen_council_home
+hydrogen_council_hydrogen_in_action
+hydrogen_council_intelligence
+hydrogen_council_memberspython
+hydrogen_council_newsroom
+hintco_collector_raw_document.py
+python
+
+# --- Future web frontend (Node) ---
+node_modules/
+dist/
+build/

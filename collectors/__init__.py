@@ -1,0 +1,1 @@
+"""Collector package for the Green Molecules Intelligence Platform."""

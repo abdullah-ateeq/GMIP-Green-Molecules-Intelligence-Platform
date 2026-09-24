@@ -1,0 +1,11 @@
+requests
+beautifulsoup4
+lxml
+pandas
+openpyxl
+streamlit
+python-dateutil
+playwright
+PySide6
+feedparser
+pytest
