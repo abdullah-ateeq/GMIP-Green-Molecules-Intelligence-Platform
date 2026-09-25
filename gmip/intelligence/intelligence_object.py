@@ -174,6 +174,7 @@ class IntelligenceObject:
     commercial_theme: str | None = None
     policy_theme: str | None = None
     tender_type: str | None = None
+    project_stage: str | None = None
 
     tender: TenderDetails | None = None
     offtake: OfftakeDetails | None = None
@@ -184,6 +185,15 @@ class IntelligenceObject:
 
     attachments: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
+
+    raw_document_id: str | None = None
+
+    # Stable identity across re-collections of the "same" logical item
+    # (e.g. one tender lot, one report), distinct from content_hash (which
+    # changes whenever the content itself changes). Parsers set this so
+    # persistence can tell NEW from UPDATED rather than just deduplicating
+    # identical content. Falls back to (source_id, title) if unset.
+    identity_key: str | None = None
 
     content_hash: str | None = None
 
@@ -213,6 +223,9 @@ class IntelligenceObject:
             )
 
         self._normalise_lists()
+
+        if self.identity_key is None:
+            self.identity_key = f"{self.source_id}:{self.title.casefold()}"
 
         if self.content_hash is None:
             self.content_hash = self.generate_content_hash()

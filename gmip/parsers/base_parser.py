@@ -188,12 +188,15 @@ class BaseParser(ABC):
         commercial_theme: str | None = None,
         policy_theme: str | None = None,
         tender_type: str | None = None,
+        project_stage: str | None = None,
         tender: TenderDetails | None = None,
         offtake: OfftakeDetails | None = None,
         commercial_relevance: str | None = None,
         why_it_matters: str | None = None,
         recommended_action: str | None = None,
         metadata: dict[str, Any] | None = None,
+        raw_document_id: str | None = None,
+        identity_key: str | None = None,
     ) -> IntelligenceObject:
         """
         Construct a standardized IntelligenceObject.
@@ -253,6 +256,7 @@ class BaseParser(ABC):
             commercial_theme=self.clean_optional_text(commercial_theme),
             policy_theme=self.clean_optional_text(policy_theme),
             tender_type=self.clean_optional_text(tender_type),
+            project_stage=self.clean_optional_text(project_stage),
             tender=tender,
             offtake=offtake,
             commercial_relevance=self.clean_optional_text(
@@ -265,6 +269,8 @@ class BaseParser(ABC):
                 recommended_action
             ),
             metadata=metadata or {},
+            raw_document_id=raw_document_id,
+            identity_key=identity_key,
         )
 
     @staticmethod

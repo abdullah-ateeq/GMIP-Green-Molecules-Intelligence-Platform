@@ -24,10 +24,11 @@ from config import (
 )
 
 from database import (
+    classify_and_save_intelligence_object,
     get_snapshot,
     insert_change,
     insert_initial_snapshot,
-    save_intelligence_object,
+    save_raw_document,
     update_snapshot,
 )
 
@@ -635,35 +636,75 @@ CURRENT CONTENT
 
 def _parse_and_persist_intelligence(
     raw_document: RawDocument,
-) -> None:
+) -> dict:
     """
     Best-effort structured parsing, additive to the legacy pipeline below.
 
-    Looks up a real parser for this page's source_id; if one exists, parses
-    the RawDocument into IntelligenceObjects and persists them. Any failure
-    here is logged and swallowed — it must never affect the legacy
-    snapshot/change detection that the rest of process_source() performs.
+    Persists the RawDocument as an audit-trail row, looks up a real parser
+    for this page's source_id, parses the RawDocument into
+    IntelligenceObjects, and persists each with item-level NEW/UPDATED/
+    UNCHANGED change detection (see database.classify_and_save_intelligence_object).
+    Any failure here is logged and swallowed — it must never affect the
+    legacy snapshot/change detection that the rest of process_source()
+    performs.
+
+    Returns a small summary dict (for the end-to-end runner to log):
+    {"source_id", "parser", "objects_parsed", "new", "updated",
+    "unchanged", "error"}.
     """
 
+    summary = {
+        "source_id": raw_document.source_id,
+        "parser": None,
+        "objects_parsed": 0,
+        "new": 0,
+        "updated": 0,
+        "unchanged": 0,
+        "error": None,
+    }
+
     try:
+        save_raw_document(raw_document)
+
         parser = _PARSER_REGISTRY.get_parser(raw_document.source_id)
 
         if parser is None:
-            return
+            return summary
+
+        summary["parser"] = parser.parser_name
 
         intelligence_objects = parser.parse_many(
             [raw_document.to_dict()],
             skip_invalid=True,
         )
+        summary["objects_parsed"] = len(intelligence_objects)
 
         for intelligence_object in intelligence_objects:
-            save_intelligence_object(intelligence_object)
+            intelligence_object.raw_document_id = raw_document.document_id
+
+            result = classify_and_save_intelligence_object(
+                intelligence_object
+            )
+
+            if result["change_type"] == "NEW":
+                summary["new"] += 1
+            elif result["change_type"] == "UPDATED":
+                summary["updated"] += 1
+                print(
+                    f"  UPDATED: {intelligence_object.title} "
+                    f"({raw_document.source_id}) — {result['diff']}"
+                )
+            else:
+                summary["unchanged"] += 1
 
     except Exception as exc:
+        summary["error"] = str(exc)
         print(
             f"Structured parsing failed for {raw_document.source_id} "
             f"(legacy collection continues): {exc}"
         )
+
+    return summary
 
 
 def process_source(

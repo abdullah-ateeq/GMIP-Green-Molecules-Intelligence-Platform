@@ -173,6 +173,7 @@ class HydrogenCouncilParser(BaseParser):
                 else len(text)
             )
             body = text[body_start:body_end].strip()
+            body = self._strip_trailing_noise(body)
 
             title = self._derive_title(body)
             dedupe_key = (title.casefold(), date_text)
@@ -211,6 +212,18 @@ class HydrogenCouncilParser(BaseParser):
             objects.append(intelligence_object)
 
         return objects
+
+    @staticmethod
+    def _strip_trailing_noise(body: str) -> str:
+        """
+        Strip "Read More" and any trailing pagination controls
+        ("1 2 3 ... Next") that leak into the last card on a listing page.
+        """
+        body = re.sub(r"Read [Mm]ore\s*", "", body).strip()
+        body = re.sub(
+            r"\s*(?:\d+\s+){2,}(?:Next\s*)?$", "", body
+        ).strip()
+        return body
 
     @classmethod
     def _derive_title(cls, body: str) -> str | None:

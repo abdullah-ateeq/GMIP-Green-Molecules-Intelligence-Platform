@@ -29,6 +29,28 @@ def get_connection():
         connection.close()
 
 
+def _ensure_columns(
+    connection: sqlite3.Connection,
+    table: str,
+    columns: dict[str, str],
+) -> None:
+    """
+    Additively migrate a table: add any of `columns` that don't already
+    exist, leaving existing data untouched. Safe to call on every startup.
+    """
+
+    existing = {
+        row["name"]
+        for row in connection.execute(f"PRAGMA table_info({table})")
+    }
+
+    for column_name, column_type in columns.items():
+        if column_name not in existing:
+            connection.execute(
+                f"ALTER TABLE {table} ADD COLUMN {column_name} {column_type}"
+            )
+
+
 def initialize_database() -> None:
     """
     Create all required database tables and indexes.
@@ -161,6 +183,9 @@ def initialize_database() -> None:
                 companies TEXT,
                 categories TEXT,
 
+                identity_key TEXT,
+                raw_document_id TEXT,
+
                 content_hash TEXT NOT NULL UNIQUE,
                 payload_json TEXT NOT NULL,
 
@@ -169,10 +194,63 @@ def initialize_database() -> None:
             """
         )
 
+        # Additive migration for databases created before identity_key /
+        # raw_document_id existed (CREATE TABLE IF NOT EXISTS above does
+        # not alter an already-existing table).
+        _ensure_columns(
+            connection,
+            "intelligence_objects",
+            {
+                "identity_key": "TEXT",
+                "raw_document_id": "TEXT",
+            },
+        )
+
         connection.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_intelligence_source_id
             ON intelligence_objects(source_id)
+            """
+        )
+
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_intelligence_identity_key
+            ON intelligence_objects(identity_key)
+            """
+        )
+
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS raw_documents (
+                document_id TEXT PRIMARY KEY,
+                source_id TEXT NOT NULL,
+                source_name TEXT,
+                source_url TEXT,
+
+                title TEXT,
+                status TEXT,
+                content_type TEXT,
+                language TEXT,
+
+                published_at TEXT,
+                collected_at TEXT NOT NULL,
+
+                collector_id TEXT,
+                collector_name TEXT,
+                http_status_code INTEGER,
+
+                content_hash TEXT,
+                text_excerpt TEXT,
+                metadata_json TEXT
+            )
+            """
+        )
+
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_raw_documents_source_id
+            ON raw_documents(source_id)
             """
         )
 
@@ -809,11 +887,13 @@ def save_intelligence_object(intelligence_object) -> bool:
                 countries,
                 companies,
                 categories,
+                identity_key,
+                raw_document_id,
                 content_hash,
                 payload_json,
                 collected_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 intelligence_object.intelligence_id,
@@ -833,6 +913,8 @@ def save_intelligence_object(intelligence_object) -> bool:
                 json.dumps(intelligence_object.countries),
                 json.dumps(intelligence_object.companies),
                 json.dumps(intelligence_object.categories),
+                intelligence_object.identity_key,
+                intelligence_object.raw_document_id,
                 intelligence_object.content_hash,
                 intelligence_object.to_json(indent=None),
                 intelligence_object.collected_at.isoformat(),
@@ -840,6 +922,193 @@ def save_intelligence_object(intelligence_object) -> bool:
         )
 
         return cursor.rowcount > 0
+
+
+def classify_and_save_intelligence_object(intelligence_object) -> dict:
+    """
+    Persist one IntelligenceObject with item-level change detection.
+
+    Looks up the most recent previously-stored object sharing the same
+    identity_key (the same logical tender lot / report / item, independent
+    of whether its content has changed) and classifies this collection as:
+
+      - "NEW"       — no previous object with this identity_key exists
+      - "UPDATED"   — a previous object exists with a different content_hash
+      - "UNCHANGED" — a previous object exists with the same content_hash
+
+    This is the structured equivalent of the legacy "page changed" check,
+    but at the level of one logical item rather than one whole webpage.
+    Returns a dict with the classification, a lightweight field-level diff
+    against the previous version (when UPDATED), and whether a new row was
+    actually inserted.
+    """
+
+    with get_connection() as connection:
+        previous_row = connection.execute(
+            """
+            SELECT *
+            FROM intelligence_objects
+            WHERE identity_key = ?
+            ORDER BY collected_at DESC
+            LIMIT 1
+            """,
+            (intelligence_object.identity_key,),
+        ).fetchone()
+
+    previous = dict(previous_row) if previous_row else None
+
+    if previous is None:
+        change_type = "NEW"
+    elif previous["content_hash"] == intelligence_object.content_hash:
+        change_type = "UNCHANGED"
+    else:
+        change_type = "UPDATED"
+
+    diff: dict[str, dict] = {}
+
+    if change_type == "UPDATED" and previous is not None:
+        try:
+            previous_payload = json.loads(previous.get("payload_json") or "{}")
+        except (json.JSONDecodeError, TypeError):
+            previous_payload = {}
+
+        comparable_fields = (
+            "title",
+            "summary",
+            "fid_date",
+            "cod_date",
+            "tender_type",
+            "project_stage",
+        )
+
+        for field_name in comparable_fields:
+            old_value = previous_payload.get(field_name)
+            new_value = getattr(intelligence_object, field_name, None)
+
+            if hasattr(new_value, "isoformat"):
+                new_value = new_value.isoformat()
+
+            if old_value != new_value:
+                diff[field_name] = {"old": old_value, "new": new_value}
+
+        old_tender_status = (previous_payload.get("tender") or {}).get(
+            "tender_status"
+        )
+        new_tender_status = (
+            intelligence_object.tender.tender_status
+            if intelligence_object.tender
+            else None
+        )
+
+        if old_tender_status != new_tender_status:
+            diff["tender_status"] = {
+                "old": old_tender_status,
+                "new": new_tender_status,
+            }
+
+    inserted = save_intelligence_object(intelligence_object)
+
+    return {
+        "change_type": change_type,
+        "diff": diff,
+        "inserted": inserted,
+        "previous_intelligence_id": (
+            previous["intelligence_id"] if previous else None
+        ),
+    }
+
+
+def save_raw_document(raw_document) -> None:
+    """
+    Persist one RawDocument as an audit-trail row.
+
+    Unlike intelligence_objects, this is not deduplicated — every
+    collection attempt is logged, successful or not, so source health and
+    provenance can be reconstructed later. Full HTML is not stored here
+    (already saved to Data/Raw/ by the legacy collector); only a bounded
+    text excerpt is kept for quick inspection.
+    """
+
+    text_excerpt = (raw_document.text or "")[:2000] or None
+
+    with get_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO raw_documents (
+                document_id,
+                source_id,
+                source_name,
+                source_url,
+                title,
+                status,
+                content_type,
+                language,
+                published_at,
+                collected_at,
+                collector_id,
+                collector_name,
+                http_status_code,
+                content_hash,
+                text_excerpt,
+                metadata_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                raw_document.document_id,
+                raw_document.source_id,
+                raw_document.source_name,
+                raw_document.source_url,
+                raw_document.title,
+                raw_document.status,
+                raw_document.content_type,
+                raw_document.language,
+                (
+                    raw_document.published_at.isoformat()
+                    if raw_document.published_at
+                    else None
+                ),
+                raw_document.collected_at.isoformat(),
+                raw_document.collector_id,
+                raw_document.collector_name,
+                raw_document.http_status_code,
+                raw_document.content_hash,
+                text_excerpt,
+                json.dumps(raw_document.metadata or {}),
+            ),
+        )
+
+
+def get_recent_raw_documents(
+    limit: int = 20,
+    source_id: str | None = None,
+) -> list[dict]:
+    """Return the most recently collected raw documents."""
+
+    with get_connection() as connection:
+        if source_id:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM raw_documents
+                WHERE source_id = ?
+                ORDER BY collected_at DESC
+                LIMIT ?
+                """,
+                (source_id, limit),
+            ).fetchall()
+        else:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM raw_documents
+                ORDER BY collected_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+
+        return [dict(row) for row in rows]
 
 
 def get_recent_intelligence_objects(
