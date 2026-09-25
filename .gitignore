@@ -38,7 +38,10 @@ hydrogen_council_newsroom
 hintco_collector_raw_document.py
 python
 
-# --- Future web frontend (Node) ---
+# --- Web frontend (Node) ---
 node_modules/
 dist/
 build/
+
+# --- Scratch / temp artifacts ---
+.scratch/

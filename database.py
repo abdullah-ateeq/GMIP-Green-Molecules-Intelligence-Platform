@@ -866,6 +866,7 @@ def get_recent_intelligence_objects(
                     countries,
                     companies,
                     categories,
+                    payload_json,
                     collected_at
                 FROM intelligence_objects
                 WHERE source_id = ?
@@ -892,6 +893,7 @@ def get_recent_intelligence_objects(
                     countries,
                     companies,
                     categories,
+                    payload_json,
                     collected_at
                 FROM intelligence_objects
                 ORDER BY collected_at DESC
@@ -904,3 +906,161 @@ def get_recent_intelligence_objects(
             dict(row)
             for row in rows
         ]
+
+
+# ==========================================================
+# INTELLIGENCE ANALYTICS
+# ==========================================================
+#
+# Lightweight, honest aggregations over intelligence_objects for the
+# executive dashboard. These compute real counts from collected data —
+# nothing here is a placeholder or fabricated figure. Widgets with no
+# underlying data model yet (opportunity scoring, market signals) are
+# deliberately not implemented here; see the web dashboard's empty states.
+
+
+def get_country_mentions(limit: int = 15) -> list[dict]:
+    """Count how many intelligence objects mention each country."""
+
+    counts: dict[str, int] = {}
+
+    with get_connection() as connection:
+        rows = connection.execute(
+            "SELECT countries FROM intelligence_objects"
+        ).fetchall()
+
+    for row in rows:
+        try:
+            countries = json.loads(row["countries"] or "[]")
+        except (json.JSONDecodeError, TypeError):
+            continue
+
+        for country in countries:
+            counts[country] = counts.get(country, 0) + 1
+
+    ranked = sorted(counts.items(), key=lambda item: item[1], reverse=True)
+
+    return [
+        {"country": country, "mentions": mentions}
+        for country, mentions in ranked[:limit]
+    ]
+
+
+def get_source_type_distribution() -> list[dict]:
+    """Count intelligence objects grouped by their source organisation."""
+
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT
+                source_organisation,
+                COUNT(*) AS total
+            FROM intelligence_objects
+            GROUP BY source_organisation
+            ORDER BY total DESC
+            """
+        ).fetchall()
+
+        return [
+            dict(row)
+            for row in rows
+        ]
+
+
+def get_intelligence_type_distribution() -> list[dict]:
+    """Count intelligence objects grouped by intelligence_type."""
+
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT
+                intelligence_type,
+                COUNT(*) AS total
+            FROM intelligence_objects
+            GROUP BY intelligence_type
+            ORDER BY total DESC
+            """
+        ).fetchall()
+
+        return [
+            dict(row)
+            for row in rows
+        ]
+
+
+def get_activity_timeseries(days: int = 30) -> list[dict]:
+    """
+    Daily count of collected intelligence objects over the trailing window,
+    for the dashboard's activity chart.
+    """
+
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT
+                substr(collected_at, 1, 10) AS day,
+                COUNT(*) AS total
+            FROM intelligence_objects
+            WHERE collected_at >= datetime('now', ?)
+            GROUP BY day
+            ORDER BY day ASC
+            """,
+            (f"-{days} days",),
+        ).fetchall()
+
+        return [
+            dict(row)
+            for row in rows
+        ]
+
+
+def get_intelligence_count(since_days: int | None = None) -> int:
+    """Total intelligence objects collected, optionally within a window."""
+
+    with get_connection() as connection:
+        if since_days is not None:
+            row = connection.execute(
+                """
+                SELECT COUNT(*) AS total
+                FROM intelligence_objects
+                WHERE collected_at >= datetime('now', ?)
+                """,
+                (f"-{since_days} days",),
+            ).fetchone()
+        else:
+            row = connection.execute(
+                "SELECT COUNT(*) AS total FROM intelligence_objects"
+            ).fetchone()
+
+        return row["total"]
+
+
+def get_tender_counts() -> dict:
+    """Open vs. closed tender counts, from real Hintco tender intelligence."""
+
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT payload_json
+            FROM intelligence_objects
+            WHERE intelligence_type = 'tender'
+            """
+        ).fetchall()
+
+    open_count = 0
+    closed_count = 0
+
+    for row in rows:
+        try:
+            payload = json.loads(row["payload_json"])
+        except (json.JSONDecodeError, TypeError):
+            continue
+
+        status = (payload.get("tender") or {}).get("tender_status")
+
+        if status == "Open":
+            open_count += 1
+        elif status == "Closed":
+            closed_count += 1
+
+    return {"open": open_count, "closed": closed_count, "total": len(rows)}

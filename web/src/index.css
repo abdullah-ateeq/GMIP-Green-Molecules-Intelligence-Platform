@@ -1,0 +1,63 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+
+  /* Base surfaces — Carbon Green Terminal */
+  --color-background: #0b0f0d;
+  --color-surface: #111714;
+  --color-surface-2: #162019;
+  --color-surface-elevated: #1a241e;
+  --color-border: #253129;
+
+  /* Green / hydrogen accents */
+  --color-green: #24d17e;
+  --color-emerald: #12b76a;
+  --color-aqua: #2ad4c9;
+  --color-lime: #a3e635;
+
+  /* Text */
+  --color-text-primary: #f4f7f5;
+  --color-text-secondary: #c7d1cb;
+  --color-text-muted: #8b9a90;
+  --color-text-disabled: #5f6d64;
+
+  /* Semantic */
+  --color-positive: #24d17e;
+  --color-info: #2ad4c9;
+  --color-watch: #f7b84b;
+  --color-risk: #f97066;
+  --color-neutral: #8b9a90;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background-color: var(--color-background);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  border-color: var(--color-border);
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: var(--color-surface-elevated);
+  border-radius: 8px;
+}

@@ -55,8 +55,8 @@ GMIP is under active daily development. The collection foundation is mature; the
 | Licensed-source connectors (Hydrogen Insight, Recharge News, S&P Global, Argus) | 🟡 Adapter ready, pending credentials |
 | Desktop application (PySide6) | 🟡 Dashboard & source selection working; several tabs still placeholders |
 | Streamlit dashboard | ✅ Working |
+| Web dashboard (React + FastAPI, "Carbon Green Terminal") | 🟡 Executive Dashboard working end-to-end on real data; deeper pages (Projects, Companies, Policy, AI Assistant, Reports) not yet built |
 | Entity resolution / knowledge graph / signal engine | ⬜ Planned |
-| Web UI (React/FastAPI) | ⬜ Planned |
 | Automated scheduling & alerts | ⬜ Planned |
 
 ## Architecture
@@ -91,6 +91,8 @@ GMIP/
 ├── models.py                  # Legacy result dataclasses
 ├── collectors/                # Modular collector layer (Hintco, Hydrogen Council)
 ├── UI/                        # PySide6 desktop application
+├── api/                       # FastAPI read-only API layer, serving the web dashboard
+├── web/                       # React + TypeScript web dashboard ("Carbon Green Terminal")
 ├── gmip/                      # New-architecture intelligence platform package
 │   ├── models/                 # RawDocument
 │   ├── parsers/                 # BaseParser, ParserRegistry, and per-source parsers
@@ -120,6 +122,9 @@ source .venv/bin/activate
 
 pip install -r requirements.txt
 playwright install chromium
+
+# Optional — only needed for the web dashboard
+cd web && npm install && cd ..
 ```
 
 Create a `.env` file for local configuration (and, when available, licensed-source API credentials):
@@ -158,6 +163,13 @@ streamlit run dashboard.py
 python UI/run_ui.py
 ```
 
+**Launch the web dashboard** (API + frontend, two terminals):
+
+```bash
+uvicorn api.main:app --port 8000        # backend, from the project root
+cd web && npm run dev                    # frontend, http://localhost:5173
+```
+
 ## Data Sources & Access Governance
 
 GMIP explicitly distinguishes between source access modes, and never scrapes a source outside what it's actually entitled to:
@@ -190,7 +202,7 @@ Near-term priorities, in order:
 2. Intelligence database expansion (entities, events, relationships)
 3. Knowledge graph
 4. Signal engine (cross-source pattern detection)
-5. Executive web dashboard (React + FastAPI)
+5. Remaining web dashboard pages (Projects, Companies, Policy, Intelligence Feed, AI Assistant, Reports)
 6. AI-assisted reasoning over structured intelligence
 7. Automated scheduling & alerting
 8. Additional global sources
