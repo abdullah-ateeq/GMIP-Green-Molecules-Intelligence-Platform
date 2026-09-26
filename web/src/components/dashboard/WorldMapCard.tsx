@@ -69,7 +69,7 @@ export function WorldMapCard() {
                     const baseFill =
                       mentions > 0
                         ? `rgba(36, 209, 126, ${0.2 + intensity * 0.7})`
-                        : '#1A241E'
+                        : 'var(--color-surface-elevated)'
 
                     return (
                       <Geography
@@ -79,10 +79,10 @@ export function WorldMapCard() {
                           isHovered
                             ? mentions > 0
                               ? '#24D17E'
-                              : '#253129'
+                              : 'var(--color-border)'
                             : baseFill
                         }
-                        stroke="#253129"
+                        stroke="var(--color-border)"
                         strokeWidth={0.4}
                         style={{ outline: 'none' }}
                         onMouseEnter={() => setHoveredId(geo.rsmKey)}

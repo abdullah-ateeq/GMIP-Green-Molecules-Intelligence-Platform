@@ -31,6 +31,31 @@
   --color-neutral: #8b9a90;
 }
 
+/*
+ * Light theme, toggled via data-theme="light" on <html>. Overrides the
+ * same custom properties the @theme block above defines, so every
+ * background- and text-color utility already in use repaints
+ * automatically; no separate utility classes needed.
+ */
+:root[data-theme='light'] {
+  --color-background: #ffffff;
+  --color-surface: #ffffff;
+  --color-surface-2: #f3f6f4;
+  --color-surface-elevated: #e8efeb;
+  --color-border: #d7e2db;
+
+  --color-text-primary: #014421;
+  --color-text-secondary: #0a5c33;
+  --color-text-muted: #4c6f5a;
+  --color-text-disabled: #8ba796;
+
+  --color-positive: #14824b;
+  --color-info: #1f9188;
+  --color-watch: #b3790f;
+  --color-risk: #c8402f;
+  --color-neutral: #4c6f5a;
+}
+
 html,
 body,
 #root {
