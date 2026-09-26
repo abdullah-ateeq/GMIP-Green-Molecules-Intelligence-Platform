@@ -26,13 +26,34 @@ Solutions including ACWA Power. Read More
 
 HOME_PAGE_TEXT = "Hydrogen Council is a global CEO-led initiative."
 
+# WordPress wraps each card's headline in an <a> to the real article — see
+# gmip/parsers/hydrogen_council_parser.py's _extract_article_links().
+INTELLIGENCE_PAGE_HTML = """
+<html><body>
+<a href="https://hydrogencouncil.com/en/global-hydrogen-compass-2025/">
+  Global Hydrogen Compass
+</a>
+<p>Report September 8, 2025 Global Hydrogen Compass Global Hydrogen Compass
+2025 is a new flagship publication that combines comprehensive industry
+data with insights from Hydrogen Council members active in Saudi Arabia.</p>
+<a href="https://hydrogencouncil.com/en/global-hydrogen-compass-2025/">Read More</a>
+<a href="https://hydrogencouncil.com/en/podcast-transformative-hydrogen-projects/">
+  Transformative hydrogen projects
+</a>
+<p>Podcast October 19, 2023 Transformative hydrogen projects Join Hydrogen
+Council and Wood plc as they discuss transformative green hydrogen projects.</p>
+<a href="https://hydrogencouncil.com/en/podcast-transformative-hydrogen-projects/">Read More</a>
+</body></html>
+"""
 
-def _raw_record(source_id: str, text: str) -> dict:
+
+def _raw_record(source_id: str, text: str, html: str | None = None) -> dict:
     return {
         "title": f"Hydrogen Council {source_id}",
         "source_url": f"https://hydrogencouncil.com/en/{source_id}/",
         "source_id": source_id,
         "text": text,
+        "html": html,
     }
 
 
@@ -91,6 +112,47 @@ def test_newsroom_page_uses_strategic_categories_not_hintco_vocabulary() -> None
 
     assert council_update.categories == ["Council Updates"]
     assert "ACWA Power" in council_update.companies
+
+
+def test_card_gets_exact_article_link_when_html_available() -> None:
+    """
+    Regression guard for a real user-reported bug: without HTML, every
+    card's link fell back to the listing page instead of the actual
+    article. With HTML, the real per-article URL (from the headline's own
+    <a> tag) must be used instead.
+    """
+    parser = HydrogenCouncilParser()
+    raw_record = _raw_record(
+        "hydrogen_council_intelligence",
+        INTELLIGENCE_PAGE_TEXT,
+        html=INTELLIGENCE_PAGE_HTML,
+    )
+
+    results = parser.parse(raw_record)
+
+    assert len(results) == 2
+
+    report, podcast = results
+    assert report.source_url == (
+        "https://hydrogencouncil.com/en/global-hydrogen-compass-2025/"
+    )
+    assert podcast.source_url == (
+        "https://hydrogencouncil.com/en/podcast-transformative-hydrogen-projects/"
+    )
+
+
+def test_card_falls_back_to_listing_url_without_html() -> None:
+    """Backward-compatible: no html means the old listing-page fallback."""
+    parser = HydrogenCouncilParser()
+    raw_record = _raw_record(
+        "hydrogen_council_intelligence", INTELLIGENCE_PAGE_TEXT
+    )
+
+    results = parser.parse(raw_record)
+
+    assert all(
+        r.source_url == raw_record["source_url"] for r in results
+    )
 
 
 def test_whole_page_fallback_for_home_and_members() -> None:

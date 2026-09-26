@@ -44,6 +44,27 @@ def test_h2_view_appears_among_enabled_collectors() -> None:
     assert "h2_view" in enabled_ids
 
 
+def test_h2_view_appears_in_collector_statuses() -> None:
+    manager = CollectorManager()
+
+    statuses = {
+        status["collector_id"]: status
+        for status in manager.get_collector_statuses()
+    }
+
+    assert "h2_view" in statuses
+    assert statuses["h2_view"]["configuration_valid"] is True
+    assert statuses["h2_view"]["source_count"] == 1
+
+
+def test_h2_view_appears_in_source_statuses() -> None:
+    manager = CollectorManager()
+
+    source_ids = [s["source_id"] for s in manager.get_source_statuses()]
+
+    assert "h2_view" in source_ids
+
+
 def test_h2_view_sources_use_registry_feed_url_not_a_duplicate() -> None:
     from gmip.config import get_source_definition
 

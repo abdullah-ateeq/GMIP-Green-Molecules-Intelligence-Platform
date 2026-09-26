@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from bs4 import BeautifulSoup
 from dateutil import parser as date_parser
 
 from gmip.intelligence.enums import EventType, IntelligenceType
@@ -96,6 +97,99 @@ COMPANY_CANDIDATES = [
     "Fertiglobe", "Baker Hughes",
 ]
 
+# Anchor text this short is reliably site navigation ("Become a Member" is
+# 15 chars, "Hydrogen in Action" is 18) — set comfortably above those but
+# below the shortest real headlines seen in practice (e.g. "Global Hydrogen
+# Compass" at 23 chars).
+MIN_HEADLINE_LENGTH = 20
+
+
+def _extract_article_links(html: str | None) -> list[tuple[str, str]]:
+    """
+    Collect each real article headline and its actual detail-page URL, as
+    (headline, url) pairs ordered longest-headline-first.
+
+    WordPress renders each card's headline itself as
+    <a href="...the real article...">Headline text</a> — reading that is
+    far more reliable than trying to positionally match card order against
+    "Read More" links, since listing pages often repeat some cards in both
+    a "featured" section and the full list below. Returns an empty list
+    (silently) if html is missing or unparseable; callers already fall
+    back to the listing page URL when no match is found here, so nothing
+    is fabricated.
+    """
+    if not html:
+        return []
+
+    try:
+        soup = BeautifulSoup(html, "lxml")
+    except Exception:
+        return []
+
+    seen_titles: set[str] = set()
+    links: list[tuple[str, str]] = []
+
+    for anchor in soup.find_all("a", href=True):
+        href = anchor["href"]
+        text = anchor.get_text(strip=True)
+
+        if not text or text.casefold() == "read more":
+            continue
+
+        if len(text) < MIN_HEADLINE_LENGTH:
+            continue
+
+        if "hydrogencouncil.com/en/" not in href:
+            continue
+
+        # First occurrence wins (e.g. a "featured" section before the full
+        # list) — both point to the same real article either way.
+        if text.casefold() in seen_titles:
+            continue
+
+        seen_titles.add(text.casefold())
+        links.append((text, href))
+
+    # Longest headline first: our derived title is often "the real
+    # headline plus some of the following body text" (see _derive_title),
+    # so matching the longest true headline first avoids a shorter,
+    # unrelated headline matching as a false prefix.
+    links.sort(key=lambda pair: len(pair[0]), reverse=True)
+
+    return links
+
+
+def _match_article_link(
+    derived_title: str,
+    article_links: list[tuple[str, str]],
+) -> tuple[str, str] | None:
+    """
+    Find the real (headline, url) pair for a card's derived title.
+
+    _derive_title() sometimes returns the true headline verbatim,
+    sometimes the headline with trailing body text merged in (longer than
+    the real headline), and sometimes a 12-word truncation that cuts the
+    real headline short (shorter than it) — so this matches in either
+    prefix direction rather than requiring an exact string match.
+    """
+    lowered = derived_title.casefold()
+
+    for headline, url in article_links:
+        headline_lowered = headline.casefold()
+
+        if lowered.startswith(headline_lowered):
+            return headline, url
+
+        # Reverse direction only for a reasonably specific derived title —
+        # guards against a very short/generic fragment loosely prefix-
+        # matching an unrelated, longer headline.
+        if len(lowered) >= MIN_HEADLINE_LENGTH and headline_lowered.startswith(
+            lowered
+        ):
+            return headline, url
+
+    return None
+
 
 class HydrogenCouncilParser(BaseParser):
     """
@@ -161,6 +255,7 @@ class HydrogenCouncilParser(BaseParser):
         matches = list(card_pattern.finditer(text))
         objects: list[IntelligenceObject] = []
         seen: set[tuple[str, str]] = set()
+        article_links = _extract_article_links(raw_record.get("html"))
 
         for index, match in enumerate(matches):
             category = match.group("category")
@@ -176,9 +271,24 @@ class HydrogenCouncilParser(BaseParser):
             body = self._strip_trailing_noise(body)
 
             title = self._derive_title(body)
+
+            if not title:
+                continue
+
+            # Prefer the real headline + real article URL when we can
+            # match one (WordPress links the headline itself); otherwise
+            # keep the heuristic title and fall back to the listing page
+            # rather than guessing a URL.
+            matched = _match_article_link(title, article_links)
+
+            if matched:
+                title, article_url = matched
+            else:
+                article_url = raw_record["source_url"]
+
             dedupe_key = (title.casefold(), date_text)
 
-            if not title or dedupe_key in seen:
+            if dedupe_key in seen:
                 continue
 
             seen.add(dedupe_key)
@@ -190,7 +300,7 @@ class HydrogenCouncilParser(BaseParser):
 
             intelligence_object = self.build_intelligence_object(
                 title=title,
-                source_url=raw_record["source_url"],
+                source_url=article_url,
                 summary=self.clean_text(body)[:600] or None,
                 published_at=published_at,
                 collector_name="HydrogenCouncilCollector",
