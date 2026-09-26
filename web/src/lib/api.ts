@@ -68,10 +68,35 @@ export interface TenderCounts {
   total: number
 }
 
+export interface CollectorResultSummary {
+  source_id: string
+  source_name: string
+  status: string
+  message: string
+  error: string | null
+}
+
+export interface CollectRunResult {
+  duration_seconds: number
+  sources_checked: number
+  errors_count: number
+  results: CollectorResultSummary[]
+}
+
 const BASE = '/api'
 
 async function getJSON<T>(path: string): Promise<T> {
   const response = await fetch(`${BASE}${path}`)
+
+  if (!response.ok) {
+    throw new Error(`Request to ${path} failed: ${response.status}`)
+  }
+
+  return response.json() as Promise<T>
+}
+
+async function postJSON<T>(path: string): Promise<T> {
+  const response = await fetch(`${BASE}${path}`, { method: 'POST' })
 
   if (!response.ok) {
     throw new Error(`Request to ${path} failed: ${response.status}`)
@@ -98,4 +123,5 @@ export const api = {
       `/analytics/intelligence-count${sinceDays ? `?since_days=${sinceDays}` : ''}`,
     ),
   tenderCounts: () => getJSON<TenderCounts>('/analytics/tenders'),
+  collectRun: () => postJSON<CollectRunResult>('/collect/run'),
 }

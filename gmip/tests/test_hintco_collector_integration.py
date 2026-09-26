@@ -28,7 +28,7 @@ def test_unregistered_source_is_a_no_op() -> None:
     """No parser is registered for this made-up source_id — must not raise."""
     raw_document = _raw_document("not_a_real_source", "some text")
 
-    hintco_collector._parse_and_persist_intelligence(raw_document)
+    hintco_collector.parse_and_persist_intelligence(raw_document)
 
 
 def test_parser_failure_never_propagates(tmp_path, monkeypatch) -> None:
@@ -48,7 +48,7 @@ def test_parser_failure_never_propagates(tmp_path, monkeypatch) -> None:
         side_effect=RuntimeError("boom"),
     ):
         # Must not raise.
-        hintco_collector._parse_and_persist_intelligence(raw_document)
+        hintco_collector.parse_and_persist_intelligence(raw_document)
 
 
 def test_successful_parse_persists_intelligence(tmp_path, monkeypatch) -> None:
@@ -60,7 +60,7 @@ def test_successful_parse_persists_intelligence(tmp_path, monkeypatch) -> None:
         "Frequently asked questions about the Hintco tender process.",
     )
 
-    hintco_collector._parse_and_persist_intelligence(raw_document)
+    hintco_collector.parse_and_persist_intelligence(raw_document)
 
     rows = database.get_recent_intelligence_objects(source_id="hintco")
     assert len(rows) == 1

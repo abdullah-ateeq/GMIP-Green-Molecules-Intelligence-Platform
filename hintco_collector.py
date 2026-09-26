@@ -634,19 +634,21 @@ CURRENT CONTENT
 # PROCESS ONE SOURCE
 # ==========================================================
 
-def _parse_and_persist_intelligence(
+def parse_and_persist_intelligence(
     raw_document: RawDocument,
 ) -> dict:
     """
-    Best-effort structured parsing, additive to the legacy pipeline below.
+    Best-effort structured parsing for one RawDocument, from any collector.
 
-    Persists the RawDocument as an audit-trail row, looks up a real parser
-    for this page's source_id, parses the RawDocument into
-    IntelligenceObjects, and persists each with item-level NEW/UPDATED/
+    Public and reused across collectors (Hintco's own process_source()
+    below, and the H2 View legacy adapter in collectors/h2_view_collector.py)
+    so parsing/persistence logic lives in exactly one place. Persists the
+    RawDocument as an audit-trail row, looks up a real parser for this
+    page's source_id via the shared ParserRegistry, parses the RawDocument
+    into IntelligenceObjects, and persists each with item-level NEW/UPDATED/
     UNCHANGED change detection (see database.classify_and_save_intelligence_object).
     Any failure here is logged and swallowed — it must never affect the
-    legacy snapshot/change detection that the rest of process_source()
-    performs.
+    caller's own collection/snapshot logic.
 
     Returns a small summary dict (for the end-to-end runner to log):
     {"source_id", "parser", "objects_parsed", "new", "updated",
@@ -722,7 +724,7 @@ def process_source(
         source
     )
 
-    _parse_and_persist_intelligence(raw_document)
+    parse_and_persist_intelligence(raw_document)
 
     document_text = raw_document.text or ""
 

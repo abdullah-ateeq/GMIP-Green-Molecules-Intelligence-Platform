@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import sys
+import time
+from dataclasses import asdict
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -20,6 +22,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 import database
+from collectors.collector_manager import CollectorManager
 from gmip.config import SOURCE_REGISTRY
 
 app = FastAPI(
@@ -34,7 +37,7 @@ app.add_middleware(
         "http://localhost:5173",
         "http://127.0.0.1:5173",
     ],
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
@@ -142,3 +145,49 @@ def analytics_intelligence_count(since_days: int | None = None) -> dict:
 @app.get("/api/analytics/tenders")
 def analytics_tenders() -> dict:
     return database.get_tender_counts()
+
+
+@app.post("/api/collect/run")
+def collect_run() -> dict:
+    """
+    Trigger a real collection run across every registered collector
+    (Hintco, Hydrogen Council, H2 View) and report what happened.
+
+    Also records this as a row in collection_runs — the same table
+    app.py's CLI path writes to — so the dashboard's "Last Market Scan"
+    KPI reflects a web-triggered refresh too, not just CLI runs.
+
+    Synchronous and can take a couple of minutes (Hintco alone launches a
+    headless browser per source) — the frontend's Refresh button is
+    expected to show a loading state for the duration of this call.
+    """
+    started_at = time.time()
+    run_id = database.start_collection_run()
+
+    manager = CollectorManager()
+    results = manager.run_all_collectors()
+
+    duration_seconds = round(time.time() - started_at, 1)
+    errors = [r for r in results if getattr(r, "error", None)]
+    changed = [r for r in results if getattr(r, "status", None) == "CHANGED"]
+
+    run_message = (
+        f"Web refresh: checked {len(results)} source(s), "
+        f"detected {len(changed)} change(s), "
+        f"recorded {len(errors)} error(s)."
+    )
+
+    database.complete_collection_run(
+        run_id=run_id,
+        sources_checked=len(results),
+        sources_changed=len(changed),
+        errors_count=len(errors),
+        run_message=run_message,
+    )
+
+    return {
+        "duration_seconds": duration_seconds,
+        "sources_checked": len(results),
+        "errors_count": len(errors),
+        "results": [asdict(result) for result in results],
+    }

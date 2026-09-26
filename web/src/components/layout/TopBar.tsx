@@ -1,9 +1,13 @@
-import { Bell, Download, Moon, Search, Sun, UserCircle } from 'lucide-react'
+import { Bell, Download, Moon, RefreshCw, Search, Sun, UserCircle } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { api } from '../../lib/api'
 import { applyTheme, getStoredTheme, type Theme } from '../../lib/theme'
+import { cn } from '../../lib/utils'
 
 export function TopBar() {
   const [theme, setTheme] = useState<Theme>('dark')
+  const [refreshing, setRefreshing] = useState(false)
+  const [refreshError, setRefreshError] = useState<string | null>(null)
 
   useEffect(() => {
     setTheme(getStoredTheme())
@@ -13,6 +17,25 @@ export function TopBar() {
     const next: Theme = theme === 'dark' ? 'light' : 'dark'
     setTheme(next)
     applyTheme(next)
+  }
+
+  async function handleRefresh() {
+    if (refreshing) return
+
+    setRefreshing(true)
+    setRefreshError(null)
+
+    try {
+      // Triggers a real collection run across every registered source
+      // (Hintco, Hydrogen Council, H2 View) — can take a couple of minutes.
+      await api.collectRun()
+      window.location.reload()
+    } catch (error) {
+      setRefreshing(false)
+      setRefreshError(
+        error instanceof Error ? error.message : 'Refresh failed',
+      )
+    }
   }
 
   return (
@@ -27,6 +50,34 @@ export function TopBar() {
       </div>
 
       <div className="flex items-center gap-3">
+        <div className="relative">
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            title={
+              refreshing
+                ? 'Refreshing all sources — this can take a couple of minutes...'
+                : 'Fetch the latest from Hintco, Hydrogen Council and H2 View'
+            }
+            className={cn(
+              'flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-[13px] font-medium text-text-secondary transition-colors hover:bg-surface-elevated',
+              refreshing && 'cursor-not-allowed opacity-70',
+            )}
+          >
+            <RefreshCw
+              className={cn('h-3.5 w-3.5', refreshing && 'animate-spin')}
+              strokeWidth={1.75}
+            />
+            {refreshing ? 'Refreshing…' : 'Refresh'}
+          </button>
+
+          {refreshError && (
+            <div className="absolute right-0 top-full z-10 mt-2 w-64 rounded-lg border border-risk/25 bg-surface-elevated px-3 py-2 text-xs text-risk shadow-lg">
+              {refreshError}
+            </div>
+          )}
+        </div>
+
         <button
           onClick={toggleTheme}
           title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}

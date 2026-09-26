@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from collectors.h2_view_collector import H2ViewCollector
 from collectors.hintco_collector import HintcoCollector
 from collectors.hydrogen_council_collector import (
     HydrogenCouncilCollector,
@@ -35,6 +36,7 @@ class CollectorManager:
         self.collectors = [
             HintcoCollector(),
             HydrogenCouncilCollector(),
+            H2ViewCollector(),
         ]
 
     def get_enabled_collectors(self) -> list[Any]:
