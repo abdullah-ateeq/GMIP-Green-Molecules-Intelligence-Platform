@@ -133,6 +133,10 @@ Create a `.env` file for local configuration (and, when available, licensed-sour
 APP_ENV=development
 
 # Licensed-source credentials (optional — connectors stay inactive until set)
+# Setting both URL + KEY makes the connector start calling the endpoint, but
+# it still won't produce any intelligence until a record_mapper matching that
+# provider's real API response schema is supplied — see
+# gmip/collectors/licensed_connector.py for why.
 # HYDROGEN_INSIGHT_API_URL=
 # HYDROGEN_INSIGHT_API_KEY=
 # RECHARGE_NEWS_API_URL=
