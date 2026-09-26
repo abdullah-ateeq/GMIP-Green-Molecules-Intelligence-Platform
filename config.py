@@ -171,6 +171,26 @@ HYDROGEN_COUNCIL_SOURCES = [
 
 
 # ============================================================
+# H2 VIEW SOURCES
+# ============================================================
+
+# H2 View's own site (h2-view.com) and its RSS feed are dead — H2 View has
+# been absorbed into gasworld.com and now publishes as a card-listing
+# channel page there. Consumed by H2ViewCollector the same way
+# HYDROGEN_COUNCIL_SOURCES is consumed by HydrogenCouncilCollector
+# (fetch_page() + HydrogenCouncilParser-style card extraction).
+H2_VIEW_SOURCES = [
+    {
+        "source_id": "h2_view",
+        "source_name": "H2 View",
+        "url": "https://www.gasworld.com/h2-view/",
+        "source_type": "Industry Media - Hydrogen Discovery",
+        "enabled": True,
+    },
+]
+
+
+# ============================================================
 # PRODUCT KEYWORDS
 # ============================================================
 

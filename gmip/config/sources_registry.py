@@ -47,17 +47,24 @@ SOURCE_REGISTRY: list[SourceDefinition] = [
         organization="H2 View",
         source_family="industry_media",
         source_category=SourceCategory.INDUSTRY_MEDIA,
-        access_mode=SourceAccessMode.PUBLIC_RSS,
-        base_url="https://www.h2-view.com/",
-        feed_url="https://www.h2-view.com/feed/",
+        access_mode=SourceAccessMode.PUBLIC_HTML,
+        base_url="https://www.gasworld.com/h2-view/",
+        feed_url=None,
         enabled=True,
         priority=3,
         authority_level="SECONDARY",
         intelligence_role="DISCOVERY_SECONDARY_INTELLIGENCE",
         parser_id="h2_view",
         collector_id="h2_view",
-        collection_frequency="hourly",
-        terms_note="Public RSS feed. No AI-crawler restriction found in robots.txt.",
+        collection_frequency="daily",
+        terms_note=(
+            "H2 View's own site (h2-view.com) and its RSS feed are dead — "
+            "H2 View has been absorbed into gasworld.com and now publishes "
+            "as a card-listing channel page there. gasworld.com/robots.txt "
+            "has no AI-crawler restriction, so public-page collection (the "
+            "same Playwright page-download approach already used for "
+            "Hintco and Hydrogen Council) is a permitted path."
+        ),
     ),
     SourceDefinition(
         source_id="hydrogen_insight",

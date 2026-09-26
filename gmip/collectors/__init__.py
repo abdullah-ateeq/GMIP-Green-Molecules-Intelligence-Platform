@@ -1,5 +1,4 @@
 from gmip.collectors.base import GmipCollector
-from gmip.collectors.h2_view_collector import H2ViewCollector
 from gmip.collectors.licensed_connector import (
     ArgusConnector,
     HydrogenInsightConnector,
@@ -10,7 +9,6 @@ from gmip.collectors.licensed_connector import (
 
 __all__ = [
     "GmipCollector",
-    "H2ViewCollector",
     "LicensedSourceConnector",
     "HydrogenInsightConnector",
     "RechargeNewsConnector",

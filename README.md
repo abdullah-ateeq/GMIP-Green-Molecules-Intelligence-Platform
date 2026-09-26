@@ -48,7 +48,7 @@ GMIP is under active daily development. The collection foundation is mature; the
 | `IntelligenceObject` schema | ✅ Complete (tender & offtake structures included) |
 | Structured Hintco parser (tender lots, news events) | ✅ Working |
 | Structured Hydrogen Council parser (reports, newsroom, strategic intelligence) | ✅ Working |
-| H2 View (RSS) collector & parser | ✅ Working |
+| H2 View collector & parser (page-based, via gasworld.com) | ✅ Working |
 | Parser registry (source → parser routing) | ✅ Working |
 | Source access-mode governance (public / licensed / pending) | ✅ Working |
 | Source health tracking & persistence | ✅ Working |
@@ -182,7 +182,7 @@ GMIP explicitly distinguishes between source access modes, and never scrapes a s
 |---|---|---|
 | Hintco | Transactional / procurement intelligence | Public |
 | Hydrogen Council | Strategic / market intelligence | Public |
-| H2 View | Secondary discovery media | Public RSS |
+| H2 View | Secondary discovery media | Public (page collection — h2-view.com and its RSS feed are both dead; H2 View now publishes as a channel page on gasworld.com) |
 | Hydrogen Insight | Secondary media | Licensed — pending credentials |
 | Recharge News | Secondary media | Licensed — pending credentials |
 | S&P Global Commodity Insights | Premium market data | Licensed API — pending credentials |

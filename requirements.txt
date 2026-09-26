@@ -7,7 +7,6 @@ streamlit
 python-dateutil
 playwright
 PySide6
-feedparser
 pytest
 fastapi
 uvicorn[standard]

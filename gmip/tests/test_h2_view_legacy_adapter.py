@@ -12,19 +12,29 @@ if str(PROJECT_ROOT) not in sys.path:
 import database  # noqa: E402
 from collectors.collector_manager import CollectorManager  # noqa: E402
 from collectors.h2_view_collector import H2ViewCollector  # noqa: E402
-from gmip.models.raw_document import RawDocument  # noqa: E402
 
-
-def _fake_raw_documents() -> list[RawDocument]:
-    return [
-        RawDocument(
-            source_id="h2_view",
-            source_name="H2 View",
-            source_url="https://www.h2-view.com/story/example/",
-            title="A new green hydrogen plant is announced",
-            text="A new green hydrogen plant is announced in Germany.",
-        )
-    ]
+# A trimmed-down but structurally faithful reconstruction of
+# gasworld.com/h2-view/'s real layout (see gmip/tests/test_h2_view_parser.py
+# for the same fixture pattern) — used here to exercise the collector
+# end-to-end (page download -> parse -> persist) without any live network
+# call. Playwright's actual page download is mocked at
+# hintco_collector.download_page_with_browser, one level below fetch_page(),
+# so fetch_page()/process_source()/parse_and_persist_intelligence() all run
+# for real.
+FAKE_H2_VIEW_HTML = """
+<html><head><title>H2 View | gasworld</title></head><body>
+<div class="signals-grid">
+  <div class="card">
+    <a href="https://www.gasworld.com/story/example-green-hydrogen-plant/2260001.article/">
+      A new green hydrogen plant is announced in Germany
+    </a>
+    By Connor Jack
+    A new green hydrogen plant has been announced in Germany this week.
+    Hydrogen News 1 day ago 2 min read
+  </div>
+</div>
+</body></html>
+"""
 
 
 def test_collector_manager_registers_h2_view() -> None:
@@ -65,110 +75,59 @@ def test_h2_view_appears_in_source_statuses() -> None:
     assert "h2_view" in source_ids
 
 
-def test_h2_view_sources_use_registry_feed_url_not_a_duplicate() -> None:
-    from gmip.config import get_source_definition
+def test_h2_view_sources_come_from_config_not_duplicated() -> None:
+    from config import H2_VIEW_SOURCES
 
     collector = H2ViewCollector()
-    registry_source = get_source_definition("h2_view")
 
     assert collector.sources == [
-        {
-            "source_id": "h2_view",
-            "source_name": "H2 View",
-            "url": registry_source.feed_url,
-            "source_type": registry_source.source_category.value,
-            "enabled": True,
-        }
+        {**source, "enabled": True} for source in H2_VIEW_SOURCES
     ]
+    assert collector.sources[0]["url"] == "https://www.gasworld.com/h2-view/"
 
 
-def test_h2_view_selectable_by_source_id_runs_only_h2_view(
+def test_h2_view_selectable_by_source_id_downloads_and_persists(
     tmp_path, monkeypatch
 ) -> None:
     monkeypatch.setattr(database, "DATABASE_PATH", tmp_path / "test.db")
     database.initialize_database()
 
     with patch(
-        "collectors.h2_view_collector.GmipH2ViewCollector.collect",
-        return_value=_fake_raw_documents(),
+        "hintco_collector.download_page_with_browser",
+        return_value=FAKE_H2_VIEW_HTML,
     ):
         manager = CollectorManager()
         results = manager.run_selected_sources(["h2_view"])
 
     assert len(results) == 1
     assert results[0].source_id == "h2_view"
-    assert results[0].status == "SUCCESS"
-
-
-def test_rss_entries_are_converted_and_persisted(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(database, "DATABASE_PATH", tmp_path / "test.db")
-    database.initialize_database()
-
-    with patch(
-        "collectors.h2_view_collector.GmipH2ViewCollector.collect",
-        return_value=_fake_raw_documents(),
-    ):
-        collector = H2ViewCollector()
-        results = collector.run()
-
-    assert len(results) == 1
-    assert "1 new" in results[0].message
+    assert results[0].status in {"INITIAL_SNAPSHOT", "CHANGED", "NO_CHANGE"}
 
     rows = database.get_recent_intelligence_objects(source_id="h2_view")
     assert len(rows) == 1
     assert "green hydrogen plant" in rows[0]["title"].lower()
+    assert rows[0]["source_url"] == (
+        "https://www.gasworld.com/story/example-green-hydrogen-plant/2260001.article/"
+    )
 
 
-def test_empty_feed_returns_no_items_result_without_crashing(
+def test_collector_manager_survives_h2_view_download_failure(
     tmp_path, monkeypatch
 ) -> None:
-    monkeypatch.setattr(database, "DATABASE_PATH", tmp_path / "test.db")
-    database.initialize_database()
-
-    with patch(
-        "collectors.h2_view_collector.GmipH2ViewCollector.collect",
-        return_value=[],
-    ):
-        collector = H2ViewCollector()
-        results = collector.run()
-
-    assert len(results) == 1
-    assert results[0].status == "NO_ITEMS"
-    assert results[0].error is None
-
-
-def test_feed_failure_returns_error_result_without_crashing(
-    tmp_path, monkeypatch
-) -> None:
-    monkeypatch.setattr(database, "DATABASE_PATH", tmp_path / "test.db")
-    database.initialize_database()
-
-    with patch(
-        "collectors.h2_view_collector.GmipH2ViewCollector.collect",
-        side_effect=RuntimeError("feed unreachable"),
-    ):
-        collector = H2ViewCollector()
-        results = collector.run()
-
-    assert len(results) == 1
-    assert results[0].status == "FEED_ERROR"
-    assert "feed unreachable" in results[0].error
-
-
-def test_collector_manager_survives_h2_view_failure(tmp_path, monkeypatch) -> None:
     """
-    A broken H2 View feed must not stop Hintco/Hydrogen Council results
-    from coming back (CollectorManager's own per-collector isolation).
+    A broken H2 View page download must not stop Hintco/Hydrogen Council
+    results from coming back (CollectorManager's own per-collector
+    isolation, via shared_engine.run_sources()'s per-source error handling).
     """
     monkeypatch.setattr(database, "DATABASE_PATH", tmp_path / "test.db")
     database.initialize_database()
 
     with patch(
-        "collectors.h2_view_collector.GmipH2ViewCollector.collect",
-        side_effect=RuntimeError("feed unreachable"),
+        "hintco_collector.download_page_with_browser",
+        side_effect=RuntimeError("page unreachable"),
     ):
         manager = CollectorManager()
         results = manager.run_selected_sources(["h2_view"])
 
     assert len(results) == 1
-    assert results[0].status == "FEED_ERROR"
+    assert results[0].status == "PROCESSING_ERROR"

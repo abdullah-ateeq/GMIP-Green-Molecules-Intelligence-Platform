@@ -65,13 +65,19 @@ def test_source_registry_has_seven_sources_with_unique_ids() -> None:
     assert len(source_ids) == len(set(source_ids))
 
 
-def test_source_registry_h2_view_is_enabled_public_rss() -> None:
+def test_source_registry_h2_view_is_enabled_public_html() -> None:
+    """
+    H2 View's own site and RSS feed are dead — it now publishes as a
+    card-listing page on gasworld.com, collected like Hintco/Hydrogen
+    Council (public HTML page download), not RSS.
+    """
     h2_view = get_source_definition("h2_view")
 
     assert h2_view is not None
-    assert h2_view.access_mode == SourceAccessMode.PUBLIC_RSS
+    assert h2_view.access_mode == SourceAccessMode.PUBLIC_HTML
     assert h2_view.enabled is True
-    assert h2_view.feed_url
+    assert h2_view.base_url == "https://www.gasworld.com/h2-view/"
+    assert h2_view.feed_url is None
 
 
 def test_source_registry_restricted_sources_are_disabled() -> None:
