@@ -7,8 +7,16 @@ import { Skeleton } from '../ui/Skeleton'
 
 const BAR_COLORS = ['#24D17E', '#2AD4C9', '#A3E635', '#F7B84B', '#12B76A']
 
+const CATEGORY_LABELS: Record<string, string> = {
+  official_procurement: 'Procurement',
+  industry_body: 'Industry Body',
+  industry_media: 'Media / Discovery',
+  premium_market_data: 'Premium Data',
+  uncategorised: 'Uncategorised',
+}
+
 export function SourceTypeDistribution() {
-  const { data, loading } = useFetch(() => api.sourceTypeDistribution(), [])
+  const { data, loading } = useFetch(() => api.businessSourceCategories(), [])
 
   const total = data?.reduce((sum, row) => sum + row.total, 0) ?? 0
 
@@ -17,7 +25,7 @@ export function SourceTypeDistribution() {
       <CardHeader>
         <div>
           <CardTitle>Intelligence by Source Type</CardTitle>
-          <CardSubtitle>Collected intelligence, by originating source</CardSubtitle>
+          <CardSubtitle>Collected intelligence, by source category</CardSubtitle>
         </div>
       </CardHeader>
       <CardContent>
@@ -38,10 +46,10 @@ export function SourceTypeDistribution() {
             {data.map((row, index) => {
               const pct = total > 0 ? Math.round((row.total / total) * 100) : 0
               return (
-                <div key={row.source_organisation}>
+                <div key={row.source_category}>
                   <div className="mb-1 flex items-center justify-between text-xs">
                     <span className="font-medium text-text-secondary">
-                      {row.source_organisation}
+                      {CATEGORY_LABELS[row.source_category] ?? row.source_category}
                     </span>
                     <span className="text-text-muted">
                       {pct}% &middot; {row.total}

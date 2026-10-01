@@ -2,12 +2,15 @@ import { Bell, Download, Moon, RefreshCw, Search, Sun, UserCircle } from 'lucide
 import { useEffect, useState } from 'react'
 import { api } from '../../lib/api'
 import { applyTheme, getStoredTheme, type Theme } from '../../lib/theme'
+import { timeAgo } from '../../lib/utils'
 import { cn } from '../../lib/utils'
+import { useFetch } from '../../lib/useFetch'
 
 export function TopBar() {
   const [theme, setTheme] = useState<Theme>('dark')
   const [refreshing, setRefreshing] = useState(false)
   const [refreshError, setRefreshError] = useState<string | null>(null)
+  const summary = useFetch(() => api.dashboardSummary(), [])
 
   useEffect(() => {
     setTheme(getStoredTheme())
@@ -50,6 +53,24 @@ export function TopBar() {
       </div>
 
       <div className="flex items-center gap-3">
+        <div
+          className="hidden items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-[12px] text-text-muted lg:flex"
+          title={summary.data?.run_status ?? 'No run yet'}
+        >
+          <span
+            className={cn(
+              'h-1.5 w-1.5 rounded-full',
+              summary.data?.run_status === 'COMPLETED'
+                ? 'bg-green'
+                : summary.data?.run_status
+                  ? 'bg-amber'
+                  : 'bg-text-muted',
+            )}
+          />
+          Last scan:{' '}
+          {summary.data?.last_scan ? timeAgo(summary.data.last_scan) : '—'}
+        </div>
+
         <div className="relative">
           <button
             onClick={handleRefresh}

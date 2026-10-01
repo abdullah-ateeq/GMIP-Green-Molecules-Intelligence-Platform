@@ -86,6 +86,52 @@ export interface CollectRunResult {
   results: CollectorResultSummary[]
 }
 
+export interface BusinessKpis {
+  new_intelligence_total: number
+  new_intelligence_7d: number
+  open_opportunities: number
+  closed_opportunities: number
+  fid_count_30d: number
+  offtake_count_30d: number
+  offtake_total: number
+}
+
+export interface ActivitySeriesPoint {
+  day: string
+  projects: number
+  tenders: number
+  offtake: number
+  fid: number
+  policy: number
+}
+
+export interface SourceCategoryCount {
+  source_category: string
+  total: number
+}
+
+export interface OpportunityRadarItem {
+  intelligence_id: string
+  title: string
+  source_url: string
+  product: string | null
+  country: string | null
+  stage: string
+  deadline: string | null
+  relevance: number
+  priority: 'High' | 'Medium' | 'Low'
+  collected_at: string
+}
+
+export interface MarketSignal {
+  signal_type: string
+  message: string
+  region: string
+  confidence: number
+  supporting_event_count: number
+  supporting_intelligence_ids: string[]
+}
+
 const BASE = '/api'
 
 async function getJSON<T>(path: string): Promise<T> {
@@ -127,4 +173,12 @@ export const api = {
     ),
   tenderCounts: () => getJSON<TenderCounts>('/analytics/tenders'),
   collectRun: () => postJSON<CollectRunResult>('/collect/run'),
+  businessKpis: () => getJSON<BusinessKpis>('/business/kpis'),
+  businessActivity: (days = 30) =>
+    getJSON<ActivitySeriesPoint[]>(`/business/activity?days=${days}`),
+  businessSourceCategories: () =>
+    getJSON<SourceCategoryCount[]>('/business/source-categories'),
+  businessOpportunities: (limit = 20) =>
+    getJSON<OpportunityRadarItem[]>(`/business/opportunities?limit=${limit}`),
+  businessSignals: () => getJSON<MarketSignal[]>('/business/signals'),
 }

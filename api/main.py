@@ -108,6 +108,31 @@ def opportunities_recent(limit: int = 10) -> list[dict]:
     return database.get_recent_opportunities(limit=limit)
 
 
+@app.get("/api/business/kpis")
+def business_kpis() -> dict:
+    return database.get_business_kpis()
+
+
+@app.get("/api/business/activity")
+def business_activity(days: int = 30) -> list[dict]:
+    return database.get_business_activity_series(days=days)
+
+
+@app.get("/api/business/source-categories")
+def business_source_categories() -> list[dict]:
+    return database.get_source_category_distribution()
+
+
+@app.get("/api/business/opportunities")
+def business_opportunities(limit: int = 20) -> list[dict]:
+    return database.get_opportunity_radar(limit=limit)
+
+
+@app.get("/api/business/signals")
+def business_signals() -> list[dict]:
+    return database.get_market_signals()
+
+
 @app.get("/api/changes/recent")
 def changes_recent(limit: int = 10) -> list[dict]:
     return database.get_latest_changes(limit=limit)

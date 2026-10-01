@@ -1,7 +1,6 @@
-import { CalendarClock, FileSearch, Radar as RadarIcon, TrendingUp } from 'lucide-react'
+import { FileSearch, Flag, Handshake, Radar as RadarIcon } from 'lucide-react'
 import { api } from '../lib/api'
 import { useFetch } from '../lib/useFetch'
-import { timeAgo } from '../lib/utils'
 import { ActivityChart } from '../components/dashboard/ActivityChart'
 import { KpiCard } from '../components/dashboard/KpiCard'
 import { LatestIntelligenceFeed } from '../components/dashboard/LatestIntelligenceFeed'
@@ -13,10 +12,7 @@ import { TopCountriesTable } from '../components/dashboard/TopCountriesTable'
 import { WorldMapCard } from '../components/dashboard/WorldMapCard'
 
 export function Dashboard() {
-  const summary = useFetch(() => api.dashboardSummary(), [])
-  const intelCount = useFetch(() => api.intelligenceCount(), [])
-  const intelCountWeek = useFetch(() => api.intelligenceCount(7), [])
-  const tenders = useFetch(() => api.tenderCounts(), [])
+  const kpis = useFetch(() => api.businessKpis(), [])
 
   return (
     <div className="space-y-6">
@@ -32,37 +28,43 @@ export function Dashboard() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard
           label="New Intelligence"
-          value={intelCount.data?.total ?? 0}
-          subtext={`+${intelCountWeek.data?.total ?? 0} this week`}
+          value={kpis.data?.new_intelligence_total ?? 0}
+          subtext={`+${kpis.data?.new_intelligence_7d ?? 0} this week`}
           icon={FileSearch}
           accent="aqua"
-          loading={intelCount.loading}
+          loading={kpis.loading}
         />
         <KpiCard
           label="Open Opportunities"
-          value={summary.data?.opportunities ?? 0}
-          subtext="Relevant monitored sources"
+          value={kpis.data?.open_opportunities ?? 0}
+          subtext={`${kpis.data?.closed_opportunities ?? 0} closed`}
           icon={RadarIcon}
           accent="green"
-          loading={summary.loading}
+          loading={kpis.loading}
         />
         <KpiCard
-          label="Tracked Tenders"
-          value={tenders.data?.total ?? 0}
-          subtext={`${tenders.data?.open ?? 0} open · ${tenders.data?.closed ?? 0} closed`}
-          icon={TrendingUp}
-          accent="emerald"
-          loading={tenders.loading}
-        />
-        <KpiCard
-          label="Last Market Scan"
-          value={
-            summary.data?.last_scan ? timeAgo(summary.data.last_scan) : '—'
+          label="Projects Reaching FID"
+          value={kpis.data?.fid_count_30d ?? 0}
+          subtext={
+            kpis.data?.fid_count_30d
+              ? 'Last 30 days'
+              : 'No FID events detected'
           }
-          subtext={summary.data?.run_status ?? 'No run yet'}
-          icon={CalendarClock}
+          icon={Flag}
+          accent="emerald"
+          loading={kpis.loading}
+        />
+        <KpiCard
+          label="New Offtake Agreements"
+          value={kpis.data?.offtake_count_30d ?? 0}
+          subtext={
+            kpis.data?.offtake_count_30d
+              ? `${kpis.data?.offtake_total ?? 0} tracked total`
+              : 'No offtake events detected'
+          }
+          icon={Handshake}
           accent="lime"
-          loading={summary.loading}
+          loading={kpis.loading}
         />
       </div>
 
