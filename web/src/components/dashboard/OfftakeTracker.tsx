@@ -46,14 +46,23 @@ export function OfftakeTracker() {
                   className="border-t border-border/60 [&>td]:py-2.5"
                 >
                   <td className="max-w-[220px] truncate font-medium text-text-primary">
-                    <a
-                      href={item.source_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="hover:text-aqua"
-                    >
-                      {item.title}
-                    </a>
+                    {item.source_available === false ? (
+                      <span
+                        className="text-text-muted"
+                        title="Original source currently unavailable (404/410)."
+                      >
+                        {item.title}
+                      </span>
+                    ) : (
+                      <a
+                        href={item.source_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="hover:text-aqua"
+                      >
+                        {item.title}
+                      </a>
+                    )}
                   </td>
                   <td className="max-w-[180px] truncate text-text-secondary">
                     {item.companies.length > 0 ? item.companies.join(', ') : '—'}

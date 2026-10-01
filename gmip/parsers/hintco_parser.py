@@ -130,6 +130,9 @@ class HintcoParser(BaseParser):
         page_source_id = raw_record.get("source_id", "")
         text = self._strip_nav_boilerplate(raw_record.get("text") or "")
 
+        if self.is_soft_404(raw_record.get("title"), text):
+            return []
+
         if page_source_id in LOT_PAGE_SOURCE_IDS:
             objects = self._parse_lots(raw_record, text)
 

@@ -39,10 +39,13 @@ FAMILY_CATEGORIES: dict[str, list[str]] = {
     ],
 }
 
-# Pages with no repeating card structure in the captured text (logos/JS
-# member grids, a simple corporate homepage) — parsed as one whole-page
-# object instead of inventing card structure that isn't there.
-WHOLE_PAGE_SOURCE_IDS = {
+# Pure navigation/landing pages (corporate homepage, a members logo grid)
+# — no repeating card structure AND no meaningful new business fact to
+# extract. These stay RawDocuments (collected, change-detected, available
+# for source health) but deliberately never become IntelligenceObjects —
+# a homepage is discovery input, not a market-intelligence record. See
+# the provenance-quality brief, section 13-17.
+NON_INTELLIGENCE_SOURCE_IDS = {
     "hydrogen_council_home",
     "hydrogen_council_members",
 }
@@ -88,7 +91,16 @@ PRODUCT_CANDIDATES = [
 COUNTRY_CANDIDATES = [
     "Saudi Arabia", "Germany", "Australia", "Oman", "Egypt", "Morocco",
     "Netherlands", "United States", "United Kingdom", "India", "Japan",
-    "South Korea", "Namibia", "Chile", "Spain", "Africa",
+    "South Korea", "Namibia", "Chile", "Spain",
+]
+
+# Continents/multi-country regions — kept out of COUNTRY_CANDIDATES so a
+# mention of "Africa" never populates the `countries` field (and so never
+# pollutes country-level dashboard aggregation with a region pretending
+# to be a country).
+REGION_CANDIDATES = [
+    "Africa", "Europe", "Asia", "Middle East", "Asia-Pacific",
+    "North America", "South America", "Central & South America",
 ]
 
 COMPANY_CANDIDATES = [
@@ -220,8 +232,14 @@ class HydrogenCouncilParser(BaseParser):
         page_source_id = raw_record.get("source_id", "")
         text = raw_record.get("text") or ""
 
-        if page_source_id in WHOLE_PAGE_SOURCE_IDS:
-            return [self._build_whole_page_object(raw_record, text)]
+        if page_source_id in NON_INTELLIGENCE_SOURCE_IDS:
+            # Pure navigation/landing page — already collected as a
+            # RawDocument (change detection, source health); never a
+            # business-intelligence record on its own.
+            return []
+
+        if self.is_soft_404(raw_record.get("title"), text):
+            return []
 
         categories = FAMILY_CATEGORIES.get(page_source_id)
 
@@ -315,6 +333,7 @@ class HydrogenCouncilParser(BaseParser):
                 categories=[category],
                 products=products,
                 countries=self.extract_keywords(body, COUNTRY_CANDIDATES),
+                regions=self.extract_keywords(body, REGION_CANDIDATES),
                 companies=self.extract_keywords(body, COMPANY_CANDIDATES),
                 offtake=offtake,
             )
@@ -394,5 +413,6 @@ class HydrogenCouncilParser(BaseParser):
             intelligence_type=IntelligenceType.COMPANY_UPDATE,
             products=self.extract_keywords(text, PRODUCT_CANDIDATES),
             countries=self.extract_keywords(text, COUNTRY_CANDIDATES),
+            regions=self.extract_keywords(text, REGION_CANDIDATES),
             companies=self.extract_keywords(text, COMPANY_CANDIDATES),
         )

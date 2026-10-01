@@ -62,6 +62,8 @@ def _serialize_intelligence_row(row: dict) -> dict:
         except (json.JSONDecodeError, TypeError):
             payload = {}
 
+    source_available = row.get("source_available")
+
     return {
         **row,
         "products": _parse_json_list(row.get("products")),
@@ -76,6 +78,10 @@ def _serialize_intelligence_row(row: dict) -> dict:
         "offtake_product": (payload.get("offtake") or {}).get("product"),
         "offtake_volume": (payload.get("offtake") or {}).get("volume"),
         "offtake_duration": (payload.get("offtake") or {}).get("duration"),
+        # None = never checked (the honest default — see gmip/provenance.py).
+        "source_available": (
+            None if source_available is None else bool(source_available)
+        ),
     }
 
 

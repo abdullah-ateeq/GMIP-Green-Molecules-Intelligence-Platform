@@ -186,6 +186,11 @@ def initialize_database() -> None:
                 identity_key TEXT,
                 raw_document_id TEXT,
 
+                source_available INTEGER,
+                source_status TEXT,
+                source_http_status INTEGER,
+                last_source_checked_at TEXT,
+
                 content_hash TEXT NOT NULL UNIQUE,
                 payload_json TEXT NOT NULL,
 
@@ -203,6 +208,20 @@ def initialize_database() -> None:
             {
                 "identity_key": "TEXT",
                 "raw_document_id": "TEXT",
+            },
+        )
+
+        # Source provenance/availability (see gmip/provenance.py). NULL
+        # means "never checked" — the honest default; a row is never
+        # implied to be trustworthy just because it was once collected.
+        _ensure_columns(
+            connection,
+            "intelligence_objects",
+            {
+                "source_available": "INTEGER",
+                "source_status": "TEXT",
+                "source_http_status": "INTEGER",
+                "last_source_checked_at": "TEXT",
             },
         )
 
@@ -1136,7 +1155,11 @@ def get_recent_intelligence_objects(
                     companies,
                     categories,
                     payload_json,
-                    collected_at
+                    collected_at,
+                    source_available,
+                    source_status,
+                    source_http_status,
+                    last_source_checked_at
                 FROM intelligence_objects
                 WHERE source_id = ?
                 ORDER BY collected_at DESC
@@ -1163,7 +1186,11 @@ def get_recent_intelligence_objects(
                     companies,
                     categories,
                     payload_json,
-                    collected_at
+                    collected_at,
+                    source_available,
+                    source_status,
+                    source_http_status,
+                    last_source_checked_at
                 FROM intelligence_objects
                 ORDER BY collected_at DESC
                 LIMIT ?
@@ -1175,6 +1202,66 @@ def get_recent_intelligence_objects(
             dict(row)
             for row in rows
         ]
+
+
+# ==========================================================
+# SOURCE PROVENANCE / AVAILABILITY
+# ==========================================================
+#
+# See gmip/provenance.py for the actual HTTP check — this module only
+# persists its result. A source_url is never implied to be trustworthy
+# just because it was collected; last_source_checked_at stays NULL (and
+# source_status stays unset) until a real check has run.
+
+
+def update_source_availability(
+    intelligence_id: str,
+    available: bool | None,
+    status: str,
+    http_status: int | None,
+    checked_at,
+) -> None:
+    """Persist the result of one source_url availability check."""
+
+    with get_connection() as connection:
+        connection.execute(
+            """
+            UPDATE intelligence_objects
+            SET source_available = ?,
+                source_status = ?,
+                source_http_status = ?,
+                last_source_checked_at = ?
+            WHERE intelligence_id = ?
+            """,
+            (
+                None if available is None else int(available),
+                status,
+                http_status,
+                checked_at.isoformat() if hasattr(checked_at, "isoformat") else checked_at,
+                intelligence_id,
+            ),
+        )
+
+
+def get_intelligence_objects_needing_source_check(limit: int = 50) -> list[dict]:
+    """
+    Objects whose source_url has never been checked, oldest-collected
+    first — the queue consumed by gmip.provenance.recheck_source_availability().
+    """
+
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT intelligence_id, source_url
+            FROM intelligence_objects
+            WHERE last_source_checked_at IS NULL
+            ORDER BY collected_at ASC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+
+        return [dict(row) for row in rows]
 
 
 # ==========================================================
@@ -1544,6 +1631,111 @@ def get_source_category_distribution() -> list[dict]:
     ]
 
 
+# Continents/multi-country regions that older parser versions sometimes
+# matched into `countries` before the region/country split existed (see
+# the provenance-quality brief, section 19-20). Lowercased for matching.
+_REGION_NAMES = {
+    "africa",
+    "europe",
+    "asia",
+    "middle east",
+    "asia-pacific",
+    "north america",
+    "south america",
+    "central & south america",
+}
+
+
+def reclassify_region_mentions_as_regions() -> int:
+    """
+    One-time, idempotent data-quality cleanup (section 23 of the
+    provenance-quality brief): moves any region name (e.g. "Africa")
+    that an older parser version stored in `countries` into `regions`
+    instead, on both the dedicated `countries` column (what dashboard
+    country aggregation actually reads) and the embedded payload_json.
+    Nothing is deleted — the geographic fact is preserved, just correctly
+    classified. Safe to re-run: rows with no region mis-tagged are
+    left untouched.
+
+    Returns the number of rows corrected.
+    """
+    with get_connection() as connection:
+        rows = connection.execute(
+            "SELECT intelligence_id, countries, payload_json FROM intelligence_objects"
+        ).fetchall()
+
+        corrected = 0
+
+        for row in rows:
+            try:
+                countries = json.loads(row["countries"] or "[]")
+            except (json.JSONDecodeError, TypeError):
+                continue
+
+            misclassified = [
+                c for c in countries if c.casefold() in _REGION_NAMES
+            ]
+
+            if not misclassified:
+                continue
+
+            remaining_countries = [
+                c for c in countries if c.casefold() not in _REGION_NAMES
+            ]
+
+            try:
+                payload = json.loads(row["payload_json"])
+            except (json.JSONDecodeError, TypeError):
+                payload = {}
+
+            existing_regions = payload.get("regions") or []
+            merged_regions = sorted(
+                {*existing_regions, *misclassified}, key=str.casefold
+            )
+            payload["countries"] = remaining_countries
+            payload["regions"] = merged_regions
+
+            connection.execute(
+                """
+                UPDATE intelligence_objects
+                SET countries = ?, payload_json = ?
+                WHERE intelligence_id = ?
+                """,
+                (
+                    json.dumps(remaining_countries),
+                    json.dumps(payload),
+                    row["intelligence_id"],
+                ),
+            )
+            corrected += 1
+
+        return corrected
+
+
+def delete_non_intelligence_records(source_id: str, title: str) -> int:
+    """
+    One-time, narrowly-targeted cleanup (section 23 of the
+    provenance-quality brief) for IntelligenceObjects created before the
+    parser fix that now excludes pure navigation/landing pages (e.g.
+    "Homepage | Hydrogen Council") from Latest Intelligence entirely.
+
+    Deliberately exact-match only (source_id + title) — this is not a
+    general "delete anything that looks low-value" tool, and must never
+    be used to silently remove genuine historical market intelligence.
+    The RawDocument/legacy snapshot audit trail for these pages is
+    untouched; only the non-intelligence IntelligenceObject rows go.
+    """
+    with get_connection() as connection:
+        cursor = connection.execute(
+            """
+            DELETE FROM intelligence_objects
+            WHERE source_id = ? AND title = ?
+            """,
+            (source_id, title),
+        )
+        return cursor.rowcount
+
+
 def get_opportunity_radar(limit: int = 20) -> list[dict]:
     """
     Structured, qualifying tender/procurement opportunities.
@@ -1560,7 +1752,7 @@ def get_opportunity_radar(limit: int = 20) -> list[dict]:
             """
             SELECT
                 intelligence_id, title, source_url, products, countries,
-                identity_key, payload_json, collected_at
+                identity_key, payload_json, collected_at, source_available
             FROM intelligence_objects
             WHERE intelligence_type = 'tender'
             ORDER BY collected_at DESC
@@ -1629,6 +1821,11 @@ def get_opportunity_radar(limit: int = 20) -> list[dict]:
                 "relevance": relevance,
                 "priority": priority,
                 "collected_at": row["collected_at"],
+                "source_available": (
+                    None
+                    if row["source_available"] is None
+                    else bool(row["source_available"])
+                ),
             }
         )
 

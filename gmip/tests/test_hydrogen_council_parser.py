@@ -155,11 +155,52 @@ def test_card_falls_back_to_listing_url_without_html() -> None:
     )
 
 
-def test_whole_page_fallback_for_home_and_members() -> None:
+def test_home_and_members_pages_produce_no_intelligence_objects() -> None:
+    """
+    Pure navigation/landing pages (corporate homepage, members grid) are
+    discovery input, not business intelligence — they stay RawDocuments
+    (collected, change-detected) but must never become a "Homepage |
+    Hydrogen Council"-style IntelligenceObject in Latest Intelligence
+    (provenance-quality brief, section 13-17).
+    """
     parser = HydrogenCouncilParser()
     raw_record = _raw_record("hydrogen_council_home", HOME_PAGE_TEXT)
 
     results = parser.parse(raw_record)
 
+    assert results == []
+
+
+def test_region_mentions_go_to_regions_not_countries() -> None:
+    """
+    "Africa" (and other continents) must never populate `countries` —
+    that's what corrupted the dashboard's Top Countries table with a
+    region pretending to be a country (provenance-quality brief, section
+    19-20).
+    """
+    parser = HydrogenCouncilParser()
+    raw_record = _raw_record(
+        "hydrogen_council_newsroom",
+        "Media Release June 29, 2026 Hydrogen momentum builds across "
+        "Africa New projects are advancing hydrogen deployment across "
+        "Africa this year. Read More",
+    )
+
+    results = parser.parse(raw_record)
     assert len(results) == 1
-    assert results[0].intelligence_type == IntelligenceType.COMPANY_UPDATE
+
+    assert "Africa" not in results[0].countries
+    assert "Africa" in results[0].regions
+
+
+def test_404_page_produces_no_intelligence_object() -> None:
+    parser = HydrogenCouncilParser()
+    raw_record = _raw_record(
+        "hydrogen_council_newsroom",
+        "404 Page Not Found We could not find the page you requested.",
+    )
+    raw_record["title"] = "404 - Page Not Found | Hydrogen Council"
+
+    results = parser.parse(raw_record)
+
+    assert results == []

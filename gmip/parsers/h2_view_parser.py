@@ -203,6 +203,11 @@ class H2ViewParser(BaseParser):
         self,
         raw_record: dict[str, Any],
     ) -> list[IntelligenceObject]:
+        if self.is_soft_404(
+            raw_record.get("title"), raw_record.get("text")
+        ):
+            return []
+
         html = raw_record.get("html")
         article_links = _extract_article_links(html)
 

@@ -154,6 +154,10 @@ class IntelligenceObject:
     categories: list[str] = field(default_factory=list)
     products: list[str] = field(default_factory=list)
     countries: list[str] = field(default_factory=list)
+    # Continents/multi-country regions (e.g. "Africa", "Middle East") —
+    # kept separate from `countries` so dashboard country aggregation
+    # never shows a region pretending to be a country.
+    regions: list[str] = field(default_factory=list)
     companies: list[str] = field(default_factory=list)
     projects: list[str] = field(default_factory=list)
     technologies: list[str] = field(default_factory=list)
@@ -197,6 +201,16 @@ class IntelligenceObject:
 
     content_hash: str | None = None
 
+    # Source availability/provenance (never set True without an actual
+    # HTTP check — see gmip/provenance.py). None means "never verified",
+    # which is the honest default for every freshly parsed object; a
+    # record is never allowed to imply trustworthiness just because a URL
+    # was once collected from a listing page.
+    source_available: bool | None = None
+    source_status: str | None = None
+    source_http_status: int | None = None
+    last_source_checked_at: datetime | None = None
+
     def __post_init__(self) -> None:
         self.title = self.title.strip()
         self.source_organisation = self.source_organisation.strip()
@@ -235,6 +249,7 @@ class IntelligenceObject:
             "categories",
             "products",
             "countries",
+            "regions",
             "companies",
             "projects",
             "technologies",
@@ -276,6 +291,7 @@ class IntelligenceObject:
             "categories": self.categories,
             "products": self.products,
             "countries": self.countries,
+            "regions": self.regions,
             "companies": self.companies,
             "projects": self.projects,
             "technologies": self.technologies,
@@ -374,6 +390,7 @@ class IntelligenceObject:
             "published_at",
             "collected_at",
             "updated_at",
+            "last_source_checked_at",
         ):
             value = getattr(self, key)
             result[key] = value.isoformat() if value else None

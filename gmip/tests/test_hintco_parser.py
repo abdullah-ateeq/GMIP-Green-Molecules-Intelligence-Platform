@@ -120,3 +120,16 @@ def test_unrecognised_page_falls_back_to_whole_page_object() -> None:
     assert len(results) == 1
     assert results[0].intelligence_type == IntelligenceType.OTHER
     assert results[0].tender is None
+
+
+def test_404_page_produces_no_intelligence_object() -> None:
+    parser = HintcoParser()
+    raw_record = _raw_record(
+        "hintco_general_faq",
+        "The page you requested could not be found.",
+    )
+    raw_record["title"] = "404 - Page Not Found | Hintco"
+
+    results = parser.parse(raw_record)
+
+    assert results == []

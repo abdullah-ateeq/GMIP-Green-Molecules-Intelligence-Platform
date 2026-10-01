@@ -215,6 +215,138 @@ def test_business_activity_series_groups_events_by_day_and_category(
     assert series[0]["fid"] == 0
 
 
+def test_update_source_availability_persists_result(
+    tmp_path, monkeypatch
+) -> None:
+    import datetime
+
+    _setup_db(tmp_path, monkeypatch)
+
+    obj = _tender("Open Lot", "Open")
+    database.save_intelligence_object(obj)
+
+    checked_at = datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc)
+    database.update_source_availability(
+        intelligence_id=obj.intelligence_id,
+        available=False,
+        status="UNAVAILABLE",
+        http_status=404,
+        checked_at=checked_at,
+    )
+
+    rows = database.get_recent_intelligence_objects(source_id="hintco")
+    assert rows[0]["source_available"] == 0
+    assert rows[0]["source_status"] == "UNAVAILABLE"
+    assert rows[0]["source_http_status"] == 404
+    assert rows[0]["last_source_checked_at"] == checked_at.isoformat()
+
+
+def test_objects_needing_source_check_excludes_already_checked(
+    tmp_path, monkeypatch
+) -> None:
+    import datetime
+
+    _setup_db(tmp_path, monkeypatch)
+
+    checked_obj = _tender("Checked Lot", "Open")
+    unchecked_obj = _tender("Unchecked Lot", "Open")
+    database.save_intelligence_object(checked_obj)
+    database.save_intelligence_object(unchecked_obj)
+
+    database.update_source_availability(
+        intelligence_id=checked_obj.intelligence_id,
+        available=True,
+        status="AVAILABLE",
+        http_status=200,
+        checked_at=datetime.datetime.now(datetime.timezone.utc),
+    )
+
+    pending = database.get_intelligence_objects_needing_source_check()
+    pending_ids = {row["intelligence_id"] for row in pending}
+
+    assert checked_obj.intelligence_id not in pending_ids
+    assert unchecked_obj.intelligence_id in pending_ids
+
+
+def test_reclassify_region_mentions_moves_region_out_of_countries(
+    tmp_path, monkeypatch
+) -> None:
+    _setup_db(tmp_path, monkeypatch)
+
+    obj = IntelligenceObject(
+        title="Hydrogen momentum builds across Africa",
+        source_organisation="Hydrogen Council",
+        source_id="hydrogen_council",
+        source_url="https://hydrogencouncil.com/en/africa-momentum/",
+        intelligence_type=IntelligenceType.NEWS,
+        countries=["Africa", "Germany"],
+    )
+    database.save_intelligence_object(obj)
+
+    corrected = database.reclassify_region_mentions_as_regions()
+    assert corrected == 1
+
+    rows = database.get_recent_intelligence_objects(source_id="hydrogen_council")
+    import json as json_module
+
+    assert json_module.loads(rows[0]["countries"]) == ["Germany"]
+
+    payload = json_module.loads(rows[0]["payload_json"])
+    assert payload["countries"] == ["Germany"]
+    assert "Africa" in payload["regions"]
+
+
+def test_reclassify_region_mentions_is_idempotent(tmp_path, monkeypatch) -> None:
+    _setup_db(tmp_path, monkeypatch)
+
+    obj = IntelligenceObject(
+        title="A clean record",
+        source_organisation="Hydrogen Council",
+        source_id="hydrogen_council",
+        source_url="https://hydrogencouncil.com/en/clean/",
+        intelligence_type=IntelligenceType.NEWS,
+        countries=["Germany"],
+    )
+    database.save_intelligence_object(obj)
+
+    assert database.reclassify_region_mentions_as_regions() == 0
+    assert database.reclassify_region_mentions_as_regions() == 0
+
+
+def test_delete_non_intelligence_records_removes_exact_match_only(
+    tmp_path, monkeypatch
+) -> None:
+    _setup_db(tmp_path, monkeypatch)
+
+    homepage_obj = IntelligenceObject(
+        title="Homepage | Hydrogen Council",
+        source_organisation="Hydrogen Council",
+        source_id="hydrogen_council",
+        source_url="https://hydrogencouncil.com/en/",
+        intelligence_type=IntelligenceType.COMPANY_UPDATE,
+    )
+    real_obj = IntelligenceObject(
+        title="Six new members join Hydrogen Council",
+        source_organisation="Hydrogen Council",
+        source_id="hydrogen_council",
+        source_url="https://hydrogencouncil.com/en/six-new-members/",
+        intelligence_type=IntelligenceType.NEWS,
+    )
+    database.save_intelligence_object(homepage_obj)
+    database.save_intelligence_object(real_obj)
+
+    deleted = database.delete_non_intelligence_records(
+        "hydrogen_council", "Homepage | Hydrogen Council"
+    )
+    assert deleted == 1
+
+    remaining = database.get_recent_intelligence_objects(
+        source_id="hydrogen_council"
+    )
+    assert len(remaining) == 1
+    assert remaining[0]["title"] == "Six new members join Hydrogen Council"
+
+
 def test_market_signals_require_minimum_supporting_events(
     tmp_path, monkeypatch
 ) -> None:

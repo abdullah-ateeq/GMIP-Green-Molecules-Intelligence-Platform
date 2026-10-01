@@ -32,6 +32,10 @@ export interface IntelligenceItem {
   offtake_product: string | null
   offtake_volume: string | null
   offtake_duration: string | null
+  // null = source_url has never been checked (the honest default).
+  source_available: boolean | null
+  source_status: string | null
+  source_http_status: number | null
 }
 
 export interface SourceStatus {
@@ -121,6 +125,7 @@ export interface OpportunityRadarItem {
   relevance: number
   priority: 'High' | 'Medium' | 'Low'
   collected_at: string
+  source_available: boolean | null
 }
 
 export interface MarketSignal {

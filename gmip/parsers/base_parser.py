@@ -7,7 +7,7 @@ import re
 from abc import ABC, abstractmethod
 from datetime import date, datetime, timezone
 from typing import Any, Iterable
-from urllib.parse import urljoin, urlparse
+from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 
 from gmip.intelligence.enums import (
     ConfidenceLevel,
@@ -208,6 +208,7 @@ class BaseParser(ABC):
         categories: Iterable[str] | None = None,
         products: Iterable[str] | None = None,
         countries: Iterable[str] | None = None,
+        regions: Iterable[str] | None = None,
         companies: Iterable[str] | None = None,
         projects: Iterable[str] | None = None,
         technologies: Iterable[str] | None = None,
@@ -274,6 +275,7 @@ class BaseParser(ABC):
             categories=self.normalize_string_list(categories),
             products=self.normalize_string_list(products),
             countries=self.normalize_string_list(countries),
+            regions=self.normalize_string_list(regions),
             companies=self.normalize_string_list(companies),
             projects=self.normalize_string_list(projects),
             technologies=self.normalize_string_list(technologies),
@@ -371,12 +373,35 @@ class BaseParser(ABC):
             key=str.casefold,
         )
 
+    # Tracking parameters that are safe to drop without changing which
+    # resource a URL points to — never strips params that could be part
+    # of the resource's actual identity (e.g. a real query-string-based
+    # article ID).
+    _TRACKING_PARAM_PREFIXES = ("utm_",)
+    _TRACKING_PARAM_NAMES = {
+        "fbclid",
+        "gclid",
+        "mc_cid",
+        "mc_eid",
+        "igshid",
+        "ref",
+        "ref_src",
+    }
+
     def normalize_url(
         self,
         url: Any,
     ) -> str:
         """
         Convert relative URLs to absolute URLs and validate the result.
+
+        The single shared URL-cleanup path for every parser (section 3 of
+        the provenance-quality brief: one centralized utility, not
+        per-source cleanup scattered across parser files). Handles
+        relative -> absolute resolution, HTML-escaped/whitespace-padded
+        URLs (via clean_text), fragment stripping, and known tracking
+        parameters — never touches the path or any other query parameter,
+        so it can't accidentally change which resource a URL identifies.
         """
         cleaned_url = self.clean_text(url)
 
@@ -397,7 +422,19 @@ class BaseParser(ABC):
         if not parsed_url.netloc:
             return ""
 
-        return cleaned_url
+        kept_query_params = [
+            (key, value)
+            for key, value in parse_qsl(parsed_url.query, keep_blank_values=True)
+            if key.lower() not in self._TRACKING_PARAM_NAMES
+            and not key.lower().startswith(self._TRACKING_PARAM_PREFIXES)
+        ]
+
+        normalized = parsed_url._replace(
+            query=urlencode(kept_query_params),
+            fragment="",
+        )
+
+        return urlunparse(normalized)
 
     @staticmethod
     def parse_datetime(
@@ -539,6 +576,74 @@ class BaseParser(ABC):
                 else None
             ),
         )
+
+    # Title text that reliably indicates an error/removed page rather than
+    # real content. Deliberately specific phrases (not a bare "not found",
+    # which is too generic and would false-positive on legitimate titles).
+    _SOFT_404_TITLE_PHRASES = (
+        "404",
+        "page not found",
+        "article not found",
+    )
+
+    # Body phrases only trusted as a soft-404 signal when the surrounding
+    # body text is itself very short (see is_soft_404) — a long, real
+    # article that happens to quote one of these phrases must not be
+    # rejected.
+    _SOFT_404_BODY_PHRASES = (
+        "page you requested could not be found",
+        "page you are looking for",
+        "page could not be found",
+        "doesn't exist",
+        "does not exist",
+        "has been removed",
+        "no longer available",
+        "content unavailable",
+        "article has been removed",
+        "this content is no longer",
+    )
+
+    _SOFT_404_SHORT_BODY_LENGTH = 300
+
+    @classmethod
+    def is_soft_404(
+        cls,
+        title: str | None,
+        text: str | None,
+    ) -> bool:
+        """
+        Conservative detection of a page that returned HTTP 200 but is
+        actually an error/removed-content page (section 6 of the
+        provenance-quality brief). Two independent, narrow signals:
+
+        - the page's own <title> is itself an error title (e.g. "404 -
+          Page Not Found | Example"), or
+        - the body is very short AND contains one of a small set of
+          specific removal/error phrases.
+
+        Deliberately does NOT trigger on a bare "not found" appearing
+        anywhere in a long, real article — that would reject legitimate
+        content. Used to stop a 404/removed page's own text from being
+        parsed into a fabricated IntelligenceObject.
+        """
+        cleaned_title = cls.clean_text(title).casefold()
+        cleaned_text = cls.clean_text(text)
+
+        if cleaned_title and any(
+            phrase in cleaned_title for phrase in cls._SOFT_404_TITLE_PHRASES
+        ):
+            return True
+
+        if len(cleaned_text) <= cls._SOFT_404_SHORT_BODY_LENGTH:
+            lowered_text = cleaned_text.casefold()
+
+            if any(
+                phrase in lowered_text
+                for phrase in cls._SOFT_404_BODY_PHRASES
+            ):
+                return True
+
+        return False
 
     @classmethod
     def first_non_empty(

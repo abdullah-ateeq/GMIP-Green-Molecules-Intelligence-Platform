@@ -5,6 +5,7 @@ import { timeAgo } from '../../lib/utils'
 import { Card, CardContent, CardHeader, CardSubtitle, CardTitle } from '../ui/Card'
 import { EmptyState } from '../ui/EmptyState'
 import { Skeleton } from '../ui/Skeleton'
+import { SourceLink } from '../ui/SourceLink'
 import { StatusChip, statusToTone } from '../ui/StatusChip'
 
 const TYPE_LABELS: Record<string, string> = {
@@ -21,12 +22,10 @@ function IntelligenceRow({ item }: { item: IntelligenceItem }) {
   const meta = [item.countries[0], item.products[0]].filter(Boolean).join(' · ')
 
   return (
-    <a
-      href={item.source_url}
-      target="_blank"
-      rel="noreferrer"
-      className="block rounded-lg border border-transparent px-3 py-3 transition-colors hover:border-border hover:bg-surface-2"
-    >
+    // Deliberately not a single navigate-away link — a user should be
+    // able to scan the structured intelligence here first and only
+    // separately choose to open external evidence (see SourceLink).
+    <div className="rounded-lg border border-transparent px-3 py-3 transition-colors hover:border-border hover:bg-surface-2">
       <div className="mb-1.5 flex items-center gap-2">
         <span className="rounded border border-aqua/25 bg-aqua/10 px-1.5 py-0.5 text-[10px] font-semibold text-aqua">
           {TYPE_LABELS[item.intelligence_type] ?? item.intelligence_type.toUpperCase()}
@@ -56,7 +55,11 @@ function IntelligenceRow({ item }: { item: IntelligenceItem }) {
         )}
         {item.confidence && <span>Confidence: {item.confidence}</span>}
       </div>
-    </a>
+
+      <div className="mt-2">
+        <SourceLink url={item.source_url} available={item.source_available} />
+      </div>
+    </div>
   )
 }
 

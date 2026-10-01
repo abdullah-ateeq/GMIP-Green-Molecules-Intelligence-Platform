@@ -158,6 +158,17 @@ def test_no_html_falls_back_to_whole_page_object_not_fabricated() -> None:
     assert results[0].title == "H2 View | gasworld"
 
 
+def test_404_page_produces_no_intelligence_object() -> None:
+    parser = H2ViewParser()
+    raw_record = _raw_record(html=None)
+    raw_record["title"] = "404 - Page Not Found | gasworld"
+    raw_record["text"] = "The page you requested could not be found."
+
+    results = parser.parse(raw_record)
+
+    assert results == []
+
+
 def test_html_with_no_matching_article_links_falls_back_to_whole_page() -> None:
     parser = H2ViewParser()
 
