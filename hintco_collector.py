@@ -33,6 +33,7 @@ from database import (
 )
 
 from models import CollectionResult
+from gmip.entities.backfill import resolve_mentions_for_object
 from gmip.models.raw_document import RawDocument
 from gmip.parsers import build_default_registry
 
@@ -687,6 +688,13 @@ def parse_and_persist_intelligence(
             result = classify_and_save_intelligence_object(
                 intelligence_object
             )
+
+            # Entity resolution runs after persistence, on the already-
+            # saved object (section 19 of the entity-resolution brief) —
+            # never inside the parser itself. A resolution failure must
+            # never break collection, so it stays inside this same
+            # try/except as the rest of structured parsing.
+            resolve_mentions_for_object(intelligence_object.intelligence_id)
 
             if result["change_type"] == "NEW":
                 summary["new"] += 1

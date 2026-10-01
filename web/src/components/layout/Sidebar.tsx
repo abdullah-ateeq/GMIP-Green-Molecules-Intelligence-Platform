@@ -10,12 +10,13 @@ import {
   Settings,
   Sparkles,
 } from 'lucide-react'
+import { NavLink } from 'react-router-dom'
 import { cn } from '../../lib/utils'
 
 interface NavItem {
   label: string
   icon: typeof LayoutDashboard
-  active?: boolean
+  path?: string
   disabled?: boolean
 }
 
@@ -28,7 +29,7 @@ const groups: NavGroup[] = [
   {
     label: 'Intelligence',
     items: [
-      { label: 'Dashboard', icon: LayoutDashboard, active: true },
+      { label: 'Dashboard', icon: LayoutDashboard, path: '/' },
       { label: 'Intelligence Feed', icon: Brain, disabled: true },
       { label: 'Opportunities', icon: Radar, disabled: true },
     ],
@@ -36,8 +37,8 @@ const groups: NavGroup[] = [
   {
     label: 'Market',
     items: [
-      { label: 'Projects', icon: Building2, disabled: true },
-      { label: 'Companies', icon: Building2, disabled: true },
+      { label: 'Projects', icon: Building2, path: '/projects' },
+      { label: 'Companies', icon: Building2, path: '/companies' },
       { label: 'Markets', icon: ChartNoAxesCombined, disabled: true },
       { label: 'Policy', icon: Landmark, disabled: true },
     ],
@@ -51,6 +52,9 @@ const groups: NavGroup[] = [
     ],
   },
 ]
+
+const itemClasses =
+  'flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors border-l-2'
 
 export function Sidebar() {
   return (
@@ -76,26 +80,48 @@ export function Sidebar() {
               {group.label}
             </p>
             <div className="flex flex-col gap-0.5">
-              {group.items.map((item) => (
-                <button
-                  key={item.label}
-                  disabled={item.disabled}
-                  title={item.disabled ? 'Coming soon' : undefined}
-                  className={cn(
-                    'flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors',
-                    item.active
-                      ? 'border-l-2 border-green bg-green/10 text-text-primary'
-                      : 'border-l-2 border-transparent text-text-muted hover:bg-surface-elevated hover:text-text-secondary',
-                    item.disabled && 'cursor-not-allowed opacity-40 hover:bg-transparent',
-                  )}
-                >
-                  <item.icon
-                    className={cn('h-4 w-4', item.active && 'text-green')}
-                    strokeWidth={1.75}
-                  />
-                  {item.label}
-                </button>
-              ))}
+              {group.items.map((item) =>
+                item.path ? (
+                  <NavLink
+                    key={item.label}
+                    to={item.path}
+                    end={item.path === '/'}
+                    className={({ isActive }) =>
+                      cn(
+                        itemClasses,
+                        isActive
+                          ? 'border-green bg-green/10 text-text-primary'
+                          : 'border-transparent text-text-muted hover:bg-surface-elevated hover:text-text-secondary',
+                      )
+                    }
+                  >
+                    {({ isActive }) => (
+                      <>
+                        <item.icon
+                          className={cn('h-4 w-4', isActive && 'text-green')}
+                          strokeWidth={1.75}
+                        />
+                        {item.label}
+                      </>
+                    )}
+                  </NavLink>
+                ) : (
+                  <button
+                    key={item.label}
+                    disabled={item.disabled}
+                    title={item.disabled ? 'Coming soon' : undefined}
+                    className={cn(
+                      itemClasses,
+                      'border-transparent text-text-muted',
+                      item.disabled &&
+                        'cursor-not-allowed opacity-40 hover:bg-transparent',
+                    )}
+                  >
+                    <item.icon className="h-4 w-4" strokeWidth={1.75} />
+                    {item.label}
+                  </button>
+                ),
+              )}
             </div>
           </div>
         ))}

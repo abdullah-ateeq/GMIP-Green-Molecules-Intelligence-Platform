@@ -137,6 +137,46 @@ export interface MarketSignal {
   supporting_intelligence_ids: string[]
 }
 
+export interface EntitySummary {
+  entity_id: string
+  entity_type: 'COMPANY' | 'PROJECT'
+  canonical_name: string
+  aliases: string[]
+  country: string | null
+  description: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface EntityRelationship {
+  relationship_id: string
+  subject_entity_id: string
+  relationship_type: string
+  object_entity_id: string
+  source_intelligence_object_id: string | null
+  confidence: number
+  first_seen_at: string
+  last_seen_at: string
+}
+
+export interface EntityMentionSummary {
+  intelligence_object_id: string
+  title: string
+  source_url: string
+  intelligence_type: string
+  collected_at: string
+  original_mention: string
+}
+
+export interface EntityProfile {
+  entity: EntitySummary
+  mention_count: number
+  countries: string[]
+  products: string[]
+  latest_intelligence: EntityMentionSummary[]
+  relationships: EntityRelationship[]
+}
+
 const BASE = '/api'
 
 async function getJSON<T>(path: string): Promise<T> {
@@ -186,4 +226,16 @@ export const api = {
   businessOpportunities: (limit = 20) =>
     getJSON<OpportunityRadarItem[]>(`/business/opportunities?limit=${limit}`),
   businessSignals: () => getJSON<MarketSignal[]>('/business/signals'),
+  companies: (limit = 200) =>
+    getJSON<EntitySummary[]>(`/entities/companies?limit=${limit}`),
+  companyDetail: (entityId: string) =>
+    getJSON<EntityProfile>(`/entities/companies/${entityId}`),
+  projects: (limit = 200) =>
+    getJSON<EntitySummary[]>(`/entities/projects?limit=${limit}`),
+  projectDetail: (entityId: string) =>
+    getJSON<EntityProfile>(`/entities/projects/${entityId}`),
+  searchEntities: (query: string, entityType?: 'COMPANY' | 'PROJECT') =>
+    getJSON<EntitySummary[]>(
+      `/entities/search?q=${encodeURIComponent(query)}${entityType ? `&entity_type=${entityType}` : ''}`,
+    ),
 }

@@ -18,7 +18,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 import database
@@ -147,6 +147,77 @@ def changes_recent(limit: int = 10) -> list[dict]:
 @app.get("/api/sources")
 def sources() -> list[dict]:
     return database.get_source_registry_status()
+
+
+def _serialize_entity(row: dict) -> dict:
+    return {
+        "entity_id": row["entity_id"],
+        "entity_type": row["entity_type"],
+        "canonical_name": row["canonical_name"],
+        "aliases": _parse_json_list(row.get("aliases_json")),
+        "country": row.get("country"),
+        "description": row.get("description"),
+        "created_at": row.get("created_at"),
+        "updated_at": row.get("updated_at"),
+    }
+
+
+def _serialize_profile(profile: dict | None) -> dict:
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Entity not found")
+
+    return {
+        "entity": _serialize_entity(profile["entity"]),
+        "mention_count": profile["mention_count"],
+        "countries": profile.get("countries", []),
+        "products": profile.get("products", []),
+        "latest_intelligence": [
+            {
+                "intelligence_object_id": m["intelligence_object_id"],
+                "title": m["title"],
+                "source_url": m["source_url"],
+                "intelligence_type": m["intelligence_type"],
+                "collected_at": m["intelligence_collected_at"],
+                "original_mention": m["original_mention"],
+            }
+            for m in profile["latest_intelligence"]
+        ],
+        "relationships": profile["relationships"],
+    }
+
+
+@app.get("/api/entities/companies")
+def entities_companies(limit: int = 200) -> list[dict]:
+    return [
+        _serialize_entity(row)
+        for row in database.get_entities("COMPANY", limit=limit)
+    ]
+
+
+@app.get("/api/entities/companies/{entity_id}")
+def entities_company_detail(entity_id: str) -> dict:
+    return _serialize_profile(database.get_company_profile(entity_id))
+
+
+@app.get("/api/entities/projects")
+def entities_projects(limit: int = 200) -> list[dict]:
+    return [
+        _serialize_entity(row)
+        for row in database.get_entities("PROJECT", limit=limit)
+    ]
+
+
+@app.get("/api/entities/projects/{entity_id}")
+def entities_project_detail(entity_id: str) -> dict:
+    return _serialize_profile(database.get_project_profile(entity_id))
+
+
+@app.get("/api/entities/search")
+def entities_search(q: str, entity_type: str | None = None) -> list[dict]:
+    return [
+        _serialize_entity(row)
+        for row in database.search_entities(q, entity_type=entity_type)
+    ]
 
 
 @app.get("/api/analytics/countries")

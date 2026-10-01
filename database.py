@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import uuid
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 
 from config import DATABASE_PATH
 
@@ -270,6 +271,124 @@ def initialize_database() -> None:
             """
             CREATE INDEX IF NOT EXISTS idx_raw_documents_source_id
             ON raw_documents(source_id)
+            """
+        )
+
+        # ------------------------------------------------------------
+        # ENTITY RESOLUTION (companies, projects, and other canonical
+        # entities). One generalized table rather than a separate table
+        # per entity type — see gmip/entities/ for the resolution logic.
+        # Type-specific facts (company_type, capacity, fid_date, etc.)
+        # live in metadata_json since no parser currently extracts most
+        # of them; relationships (developer/offtaker/etc.) are modeled
+        # via entity_relationships, not denormalized ID-list columns.
+        # ------------------------------------------------------------
+
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS entities (
+                entity_id TEXT PRIMARY KEY,
+                entity_type TEXT NOT NULL,
+                canonical_name TEXT NOT NULL,
+                normalized_name TEXT NOT NULL,
+                aliases_json TEXT NOT NULL DEFAULT '[]',
+                country TEXT,
+                description TEXT,
+                external_ids_json TEXT NOT NULL DEFAULT '{}',
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+
+        connection.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_entities_type_normalized
+            ON entities(entity_type, normalized_name)
+            """
+        )
+
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_entities_type
+            ON entities(entity_type)
+            """
+        )
+
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS entity_mentions (
+                mention_id TEXT PRIMARY KEY,
+                intelligence_object_id TEXT NOT NULL,
+                entity_id TEXT,
+                entity_type TEXT NOT NULL,
+                original_mention TEXT NOT NULL,
+                resolution_method TEXT NOT NULL,
+                resolution_confidence REAL NOT NULL,
+                created_at TEXT NOT NULL,
+                UNIQUE(intelligence_object_id, entity_type, original_mention)
+            )
+            """
+        )
+
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_mentions_intelligence_object
+            ON entity_mentions(intelligence_object_id)
+            """
+        )
+
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_mentions_entity
+            ON entity_mentions(entity_id)
+            """
+        )
+
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS entity_relationships (
+                relationship_id TEXT PRIMARY KEY,
+                subject_entity_id TEXT NOT NULL,
+                relationship_type TEXT NOT NULL,
+                object_entity_id TEXT NOT NULL,
+                source_intelligence_object_id TEXT,
+                confidence REAL NOT NULL,
+                first_seen_at TEXT NOT NULL,
+                last_seen_at TEXT NOT NULL,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                UNIQUE(
+                    subject_entity_id, relationship_type, object_entity_id,
+                    source_intelligence_object_id
+                )
+            )
+            """
+        )
+
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_relationships_subject
+            ON entity_relationships(subject_entity_id)
+            """
+        )
+
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_relationships_object
+            ON entity_relationships(object_entity_id)
+            """
+        )
+
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS entity_merge_log (
+                merge_id TEXT PRIMARY KEY,
+                from_entity_id TEXT NOT NULL,
+                into_entity_id TEXT NOT NULL,
+                reason TEXT,
+                merged_at TEXT NOT NULL
+            )
             """
         )
 
@@ -1899,3 +2018,491 @@ def get_market_signals() -> list[dict]:
     signals.sort(key=lambda item: item["supporting_event_count"], reverse=True)
 
     return signals
+
+# ==========================================================
+# ENTITY RESOLUTION (companies, projects, canonical entities)
+# ==========================================================
+#
+# Pure persistence layer — the actual matching/normalization logic lives
+# in gmip/entities/. See that package for why a mention does or doesn't
+# resolve to a given entity_id.
+
+def _new_id() -> str:
+    return str(uuid.uuid4())
+
+
+def get_entity(entity_id: str) -> dict | None:
+    with get_connection() as connection:
+        row = connection.execute(
+            "SELECT * FROM entities WHERE entity_id = ?",
+            (entity_id,),
+        ).fetchone()
+
+        return dict(row) if row else None
+
+
+def get_entity_by_normalized_name(
+    entity_type: str,
+    normalized_name: str,
+) -> dict | None:
+    with get_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT * FROM entities
+            WHERE entity_type = ? AND normalized_name = ?
+            """,
+            (entity_type, normalized_name),
+        ).fetchone()
+
+        return dict(row) if row else None
+
+
+def get_entity_by_alias(
+    entity_type: str,
+    normalized_alias: str,
+) -> dict | None:
+    """
+    Linear scan over entities of this type, checking each one's
+    aliases_json. Entity counts are small (tens, not thousands) at
+    GMIP's current scale, so this stays simple rather than adding a
+    separate aliases table/index prematurely.
+    """
+    with get_connection() as connection:
+        rows = connection.execute(
+            "SELECT * FROM entities WHERE entity_type = ?",
+            (entity_type,),
+        ).fetchall()
+
+    for row in rows:
+        try:
+            aliases = json.loads(row["aliases_json"] or "[]")
+        except (json.JSONDecodeError, TypeError):
+            continue
+
+        if normalized_alias in {a.casefold() for a in aliases}:
+            return dict(row)
+
+    return None
+
+
+def create_entity(
+    entity_type: str,
+    canonical_name: str,
+    normalized_name: str,
+    country: str | None = None,
+    description: str | None = None,
+    aliases: list[str] | None = None,
+    external_ids: dict | None = None,
+    metadata: dict | None = None,
+) -> str:
+    entity_id = _new_id()
+    now = datetime.now(timezone.utc).isoformat()
+
+    with get_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO entities (
+                entity_id, entity_type, canonical_name, normalized_name,
+                aliases_json, country, description, external_ids_json,
+                metadata_json, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                entity_id,
+                entity_type,
+                canonical_name,
+                normalized_name,
+                json.dumps(sorted(set(aliases or []), key=str.casefold)),
+                country,
+                description,
+                json.dumps(external_ids or {}),
+                json.dumps(metadata or {}),
+                now,
+                now,
+            ),
+        )
+
+    return entity_id
+
+
+def add_entity_alias(entity_id: str, alias: str) -> None:
+    with get_connection() as connection:
+        row = connection.execute(
+            "SELECT aliases_json FROM entities WHERE entity_id = ?",
+            (entity_id,),
+        ).fetchone()
+
+        if row is None:
+            return
+
+        try:
+            aliases = json.loads(row["aliases_json"] or "[]")
+        except (json.JSONDecodeError, TypeError):
+            aliases = []
+
+        if alias.casefold() not in {a.casefold() for a in aliases}:
+            aliases.append(alias)
+
+        connection.execute(
+            """
+            UPDATE entities
+            SET aliases_json = ?, updated_at = ?
+            WHERE entity_id = ?
+            """,
+            (
+                json.dumps(sorted(aliases, key=str.casefold)),
+                datetime.now(timezone.utc).isoformat(),
+                entity_id,
+            ),
+        )
+
+
+def get_entities(entity_type: str, limit: int = 200) -> list[dict]:
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT * FROM entities
+            WHERE entity_type = ?
+            ORDER BY canonical_name ASC
+            LIMIT ?
+            """,
+            (entity_type, limit),
+        ).fetchall()
+
+        return [dict(row) for row in rows]
+
+
+def save_entity_mention(
+    intelligence_object_id: str,
+    entity_id: str | None,
+    entity_type: str,
+    original_mention: str,
+    resolution_method: str,
+    resolution_confidence: float,
+) -> bool:
+    """
+    Idempotent: a (intelligence_object_id, entity_type, original_mention)
+    triple is only ever stored once, so re-running backfill never
+    duplicates mentions (section 48 of the entity-resolution brief).
+    """
+    with get_connection() as connection:
+        cursor = connection.execute(
+            """
+            INSERT OR IGNORE INTO entity_mentions (
+                mention_id, intelligence_object_id, entity_id, entity_type,
+                original_mention, resolution_method, resolution_confidence,
+                created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                _new_id(),
+                intelligence_object_id,
+                entity_id,
+                entity_type,
+                original_mention,
+                resolution_method,
+                resolution_confidence,
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+
+        return cursor.rowcount > 0
+
+
+def get_entity_mentions(entity_id: str, limit: int = 50) -> list[dict]:
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT m.*, io.title, io.source_url, io.intelligence_type,
+                   io.collected_at AS intelligence_collected_at
+            FROM entity_mentions m
+            JOIN intelligence_objects io
+                ON io.intelligence_id = m.intelligence_object_id
+            WHERE m.entity_id = ?
+            ORDER BY io.collected_at DESC
+            LIMIT ?
+            """,
+            (entity_id, limit),
+        ).fetchall()
+
+        return [dict(row) for row in rows]
+
+
+def get_unresolved_mentions(
+    entity_type: str | None = None,
+    limit: int = 50,
+) -> list[dict]:
+    """
+    The manual-review queue (section 33): mentions a fuzzy candidate
+    existed for but were deliberately not auto-merged or auto-created.
+    """
+    with get_connection() as connection:
+        if entity_type:
+            rows = connection.execute(
+                """
+                SELECT * FROM entity_mentions
+                WHERE entity_id IS NULL AND entity_type = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (entity_type, limit),
+            ).fetchall()
+        else:
+            rows = connection.execute(
+                """
+                SELECT * FROM entity_mentions
+                WHERE entity_id IS NULL
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+
+        return [dict(row) for row in rows]
+
+
+def save_entity_relationship(
+    subject_entity_id: str,
+    relationship_type: str,
+    object_entity_id: str,
+    source_intelligence_object_id: str | None,
+    confidence: float,
+    metadata: dict | None = None,
+) -> bool:
+    now = datetime.now(timezone.utc).isoformat()
+
+    with get_connection() as connection:
+        cursor = connection.execute(
+            """
+            INSERT OR IGNORE INTO entity_relationships (
+                relationship_id, subject_entity_id, relationship_type,
+                object_entity_id, source_intelligence_object_id,
+                confidence, first_seen_at, last_seen_at, metadata_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                _new_id(),
+                subject_entity_id,
+                relationship_type,
+                object_entity_id,
+                source_intelligence_object_id,
+                confidence,
+                now,
+                now,
+                json.dumps(metadata or {}),
+            ),
+        )
+
+        return cursor.rowcount > 0
+
+
+def get_entity_relationships(entity_id: str) -> list[dict]:
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT * FROM entity_relationships
+            WHERE subject_entity_id = ? OR object_entity_id = ?
+            ORDER BY last_seen_at DESC
+            """,
+            (entity_id, entity_id),
+        ).fetchall()
+
+        return [dict(row) for row in rows]
+
+
+def merge_entities(
+    from_entity_id: str,
+    into_entity_id: str,
+    reason: str | None = None,
+) -> None:
+    """
+    Safe merge (section 34): moves aliases, mentions, and relationships
+    from `from_entity_id` onto `into_entity_id`, logs the merge, and
+    removes the now-redundant `from_entity_id` row. Mentions/evidence are
+    relinked, never deleted — provenance survives the merge.
+    """
+    with get_connection() as connection:
+        from_entity = connection.execute(
+            "SELECT * FROM entities WHERE entity_id = ?",
+            (from_entity_id,),
+        ).fetchone()
+
+        if from_entity is None:
+            return
+
+        try:
+            from_aliases = json.loads(from_entity["aliases_json"] or "[]")
+        except (json.JSONDecodeError, TypeError):
+            from_aliases = []
+
+        into_entity = connection.execute(
+            "SELECT aliases_json FROM entities WHERE entity_id = ?",
+            (into_entity_id,),
+        ).fetchone()
+
+        try:
+            into_aliases = json.loads(
+                (into_entity["aliases_json"] if into_entity else "[]") or "[]"
+            )
+        except (json.JSONDecodeError, TypeError):
+            into_aliases = []
+
+        merged_aliases = sorted(
+            {*into_aliases, *from_aliases, from_entity["canonical_name"]},
+            key=str.casefold,
+        )
+
+        connection.execute(
+            """
+            UPDATE entities SET aliases_json = ?, updated_at = ?
+            WHERE entity_id = ?
+            """,
+            (
+                json.dumps(merged_aliases),
+                datetime.now(timezone.utc).isoformat(),
+                into_entity_id,
+            ),
+        )
+
+        connection.execute(
+            "UPDATE entity_mentions SET entity_id = ? WHERE entity_id = ?",
+            (into_entity_id, from_entity_id),
+        )
+
+        connection.execute(
+            """
+            UPDATE OR IGNORE entity_relationships
+            SET subject_entity_id = ? WHERE subject_entity_id = ?
+            """,
+            (into_entity_id, from_entity_id),
+        )
+        connection.execute(
+            """
+            UPDATE OR IGNORE entity_relationships
+            SET object_entity_id = ? WHERE object_entity_id = ?
+            """,
+            (into_entity_id, from_entity_id),
+        )
+
+        connection.execute(
+            "DELETE FROM entities WHERE entity_id = ?",
+            (from_entity_id,),
+        )
+
+        connection.execute(
+            """
+            INSERT INTO entity_merge_log (
+                merge_id, from_entity_id, into_entity_id, reason, merged_at
+            )
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                _new_id(),
+                from_entity_id,
+                into_entity_id,
+                reason,
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+
+
+def search_entities(query: str, entity_type: str | None = None, limit: int = 10) -> list[dict]:
+    """Canonical-name or alias search (case-insensitive substring)."""
+    lowered = query.strip().casefold()
+
+    if not lowered:
+        return []
+
+    with get_connection() as connection:
+        if entity_type:
+            rows = connection.execute(
+                "SELECT * FROM entities WHERE entity_type = ?", (entity_type,)
+            ).fetchall()
+        else:
+            rows = connection.execute("SELECT * FROM entities").fetchall()
+
+    matches = []
+
+    for row in rows:
+        canonical = row["canonical_name"]
+
+        try:
+            aliases = json.loads(row["aliases_json"] or "[]")
+        except (json.JSONDecodeError, TypeError):
+            aliases = []
+
+        if lowered in canonical.casefold() or any(
+            lowered in alias.casefold() for alias in aliases
+        ):
+            matches.append(dict(row))
+
+    return matches[:limit]
+
+
+def get_company_profile(entity_id: str) -> dict | None:
+    """
+    Aggregates everything currently derivable for one canonical company:
+    mentions, countries/products mentioned alongside it, recent
+    intelligence, and relationships. Only includes metrics the current
+    data actually supports (section 22/23 — no fabricated fields).
+    """
+    entity = get_entity(entity_id)
+
+    if entity is None or entity["entity_type"] != "COMPANY":
+        return None
+
+    mentions = get_entity_mentions(entity_id, limit=100)
+    relationships = get_entity_relationships(entity_id)
+
+    countries: set[str] = set()
+    products: set[str] = set()
+
+    with get_connection() as connection:
+        for mention in mentions:
+            row = connection.execute(
+                "SELECT countries, products FROM intelligence_objects WHERE intelligence_id = ?",
+                (mention["intelligence_object_id"],),
+            ).fetchone()
+
+            if row is None:
+                continue
+
+            try:
+                countries.update(json.loads(row["countries"] or "[]"))
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+            try:
+                products.update(json.loads(row["products"] or "[]"))
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+    return {
+        "entity": entity,
+        "mention_count": len(mentions),
+        "countries": sorted(countries, key=str.casefold),
+        "products": sorted(products, key=str.casefold),
+        "latest_intelligence": mentions[:10],
+        "relationships": relationships,
+    }
+
+
+def get_project_profile(entity_id: str) -> dict | None:
+    """Project equivalent of get_company_profile(); see its docstring."""
+    entity = get_entity(entity_id)
+
+    if entity is None or entity["entity_type"] != "PROJECT":
+        return None
+
+    mentions = get_entity_mentions(entity_id, limit=100)
+    relationships = get_entity_relationships(entity_id)
+
+    return {
+        "entity": entity,
+        "mention_count": len(mentions),
+        "latest_intelligence": mentions[:10],
+        "relationships": relationships,
+    }
