@@ -13,7 +13,7 @@ from database import (
     initialize_database,
     start_collection_run,
 )
-from hintco_collector import run_hintco_collection
+from collectors.collector_manager import CollectorManager
 
 
 def export_database_to_excel() -> None:
@@ -177,13 +177,13 @@ def main() -> int:
 
     print("=" * 70)
     print(
-        "HINTCO GREEN HYDROGEN, AMMONIA "
-        "AND METHANOL TENDER MONITOR"
+        "GMIP GREEN HYDROGEN, AMMONIA "
+        "AND METHANOL MARKET INTELLIGENCE MONITOR"
     )
     print("=" * 70)
 
     try:
-        results = run_hintco_collection()
+        results = CollectorManager().run_all_collectors()
 
         for result in results:
             print_result(result)
