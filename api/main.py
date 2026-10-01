@@ -73,6 +73,9 @@ def _serialize_intelligence_row(row: dict) -> dict:
         "why_it_matters": payload.get("why_it_matters"),
         "tender_status": (payload.get("tender") or {}).get("tender_status"),
         "tender_region": (payload.get("tender") or {}).get("region"),
+        "offtake_product": (payload.get("offtake") or {}).get("product"),
+        "offtake_volume": (payload.get("offtake") or {}).get("volume"),
+        "offtake_duration": (payload.get("offtake") or {}).get("duration"),
     }
 
 

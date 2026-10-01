@@ -297,6 +297,13 @@ class HydrogenCouncilParser(BaseParser):
             intelligence_type = CATEGORY_TO_INTELLIGENCE_TYPE.get(
                 category, IntelligenceType.NEWS
             )
+            products = self.extract_keywords(body, PRODUCT_CANDIDATES)
+            offtake = self.detect_offtake(
+                f"{title} {body}", products=products
+            )
+
+            if offtake is not None:
+                intelligence_type = IntelligenceType.OFFTAKE
 
             intelligence_object = self.build_intelligence_object(
                 title=title,
@@ -306,10 +313,19 @@ class HydrogenCouncilParser(BaseParser):
                 collector_name="HydrogenCouncilCollector",
                 intelligence_type=intelligence_type,
                 categories=[category],
-                products=self.extract_keywords(body, PRODUCT_CANDIDATES),
+                products=products,
                 countries=self.extract_keywords(body, COUNTRY_CANDIDATES),
                 companies=self.extract_keywords(body, COMPANY_CANDIDATES),
+                offtake=offtake,
             )
+
+            if offtake is not None:
+                intelligence_object.add_event(
+                    EventReference(
+                        event_type=EventType.OFFTAKE_SIGNED,
+                        description=title,
+                    )
+                )
 
             if category in REPORT_LIKE_CATEGORIES:
                 intelligence_object.add_event(

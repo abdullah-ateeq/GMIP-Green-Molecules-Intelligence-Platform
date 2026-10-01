@@ -6,6 +6,7 @@ import { ActivityChart } from '../components/dashboard/ActivityChart'
 import { KpiCard } from '../components/dashboard/KpiCard'
 import { LatestIntelligenceFeed } from '../components/dashboard/LatestIntelligenceFeed'
 import { MarketSignalsPanel } from '../components/dashboard/MarketSignalsPanel'
+import { OfftakeTracker } from '../components/dashboard/OfftakeTracker'
 import { OpportunityRadar } from '../components/dashboard/OpportunityRadar'
 import { SourceTypeDistribution } from '../components/dashboard/SourceTypeDistribution'
 import { TopCountriesTable } from '../components/dashboard/TopCountriesTable'
@@ -77,6 +78,7 @@ export function Dashboard() {
           <WorldMapCard />
           <TopCountriesTable />
           <OpportunityRadar />
+          <OfftakeTracker />
         </div>
         <div className="space-y-5">
           <LatestIntelligenceFeed />

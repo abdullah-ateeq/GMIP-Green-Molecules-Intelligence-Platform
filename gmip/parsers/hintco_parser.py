@@ -291,6 +291,7 @@ class HintcoParser(BaseParser):
             seen_titles.add(title.casefold())
 
             event = self._detect_news_event(f"{title} {body}")
+            offtake = self.detect_offtake(f"{title} {body}")
 
             intelligence_object = self.build_intelligence_object(
                 title=title,
@@ -298,10 +299,22 @@ class HintcoParser(BaseParser):
                 summary=self.clean_text(body)[:500] or None,
                 published_at=published_at,
                 collector_name="HintcoCollector",
-                intelligence_type=IntelligenceType.NEWS,
+                intelligence_type=(
+                    IntelligenceType.OFFTAKE
+                    if offtake is not None
+                    else IntelligenceType.NEWS
+                ),
+                offtake=offtake,
             )
 
-            if event is not None:
+            if offtake is not None:
+                intelligence_object.add_event(
+                    EventReference(
+                        event_type=EventType.OFFTAKE_SIGNED,
+                        description=title,
+                    )
+                )
+            elif event is not None:
                 intelligence_object.add_event(
                     EventReference(
                         event_type=event,

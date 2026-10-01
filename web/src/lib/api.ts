@@ -29,6 +29,9 @@ export interface IntelligenceItem {
   why_it_matters: string | null
   tender_status: string | null
   tender_region: string | null
+  offtake_product: string | null
+  offtake_volume: string | null
+  offtake_duration: string | null
 }
 
 export interface SourceStatus {

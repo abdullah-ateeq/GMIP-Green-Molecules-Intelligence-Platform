@@ -7,8 +7,11 @@ from typing import Any
 from bs4 import BeautifulSoup
 from dateutil import parser as date_parser
 
-from gmip.intelligence.enums import ConfidenceLevel, IntelligenceType
-from gmip.intelligence.intelligence_object import IntelligenceObject
+from gmip.intelligence.enums import ConfidenceLevel, EventType, IntelligenceType
+from gmip.intelligence.intelligence_object import (
+    EventReference,
+    IntelligenceObject,
+)
 from gmip.parsers.base_parser import BaseParser
 
 # Deliberately conservative and small: article summaries are short, so only
@@ -279,20 +282,36 @@ class H2ViewParser(BaseParser):
         summary: str | None,
     ) -> IntelligenceObject:
         combined_text = " ".join(filter(None, [title, summary]))
+        products = self.extract_keywords(combined_text, PRODUCT_CANDIDATES)
+        offtake = self.detect_offtake(combined_text, products=products)
 
-        return self.build_intelligence_object(
+        intelligence_object = self.build_intelligence_object(
             title=title,
             source_url=url,
             summary=summary,
             published_at=published_at,
             collector_name="H2ViewCollector",
             confidence=ConfidenceLevel.MEDIUM,
-            products=self.extract_keywords(combined_text, PRODUCT_CANDIDATES),
+            intelligence_type=(
+                IntelligenceType.OFFTAKE if offtake is not None else None
+            ),
+            products=products,
             countries=self.extract_keywords(combined_text, COUNTRY_CANDIDATES),
             companies=self.extract_keywords(combined_text, COMPANY_CANDIDATES),
             categories=[category] if category else [],
+            offtake=offtake,
             metadata={"discovery_source": True},
         )
+
+        if offtake is not None:
+            intelligence_object.add_event(
+                EventReference(
+                    event_type=EventType.OFFTAKE_SIGNED,
+                    description=title,
+                )
+            )
+
+        return intelligence_object
 
     def _build_whole_page_object(
         self,

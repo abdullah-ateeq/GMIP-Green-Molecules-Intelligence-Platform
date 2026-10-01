@@ -21,6 +21,41 @@ from gmip.intelligence.intelligence_object import (
     TenderDetails,
 )
 
+# Multi-word phrases that reliably signal a real offtake/supply agreement
+# in this industry's reporting, as opposed to generic project news. Kept
+# narrow and specific (no bare "supply" or "purchase") to avoid false
+# positives on unrelated project-update text.
+OFFTAKE_SIGNAL_PHRASES = (
+    "offtake agreement",
+    "offtake deal",
+    "offtake contract",
+    "offtaker",
+    "supply agreement",
+    "purchase agreement",
+    "sales agreement",
+    "sale and purchase agreement",
+    "agreed to supply",
+    "agreed to purchase",
+    "signed a deal to supply",
+    "signed an agreement to supply",
+    "locks in",
+    "secures supply",
+)
+
+# Mechanical quantity-and-unit extraction (e.g. "40,000 tonnes per year",
+# "1.2 MTPA") — not an attempt to parse full sentence structure.
+_OFFTAKE_VOLUME_PATTERN = re.compile(
+    r"\b[\d][\d,.]*\s*"
+    r"(?:tonnes?|tons?|mtpa|ktpa|kt|mt|gwh|mwh|mw)\b"
+    r"(?:\s*(?:per\s+year|/\s*year|annually|p\.?a\.?))?",
+    re.IGNORECASE,
+)
+
+_OFFTAKE_DURATION_PATTERN = re.compile(
+    r"\b(?:over\s+a\s+decade|a\s+decade|\d{1,2}[-\s]?years?)\b",
+    re.IGNORECASE,
+)
+
 
 class ParserError(Exception):
     """Base exception for GMIP parser failures."""
@@ -460,6 +495,50 @@ class BaseParser(ABC):
                 matches.append(cleaned_keyword)
 
         return cls.normalize_string_list(matches)
+
+    @classmethod
+    def detect_offtake(
+        cls,
+        text: str | None,
+        products: Iterable[str] | None = None,
+    ) -> OfftakeDetails | None:
+        """
+        Conservative, deterministic offtake-agreement detection.
+
+        Returns None unless a known signal phrase (see
+        OFFTAKE_SIGNAL_PHRASES) is present — this is keyword/pattern
+        matching, not inference. Only mechanically-extractable facts are
+        populated (a quantity-and-unit volume, a duration phrase, the
+        first already-matched product); producer/buyer roles are
+        deliberately left unset rather than guessed from word order,
+        since which company is the seller vs. the buyer is not reliably
+        determinable from text alone.
+        """
+        cleaned_text = cls.clean_text(text)
+        lowered = cleaned_text.casefold()
+
+        if not any(
+            phrase in lowered for phrase in OFFTAKE_SIGNAL_PHRASES
+        ):
+            return None
+
+        volume_match = _OFFTAKE_VOLUME_PATTERN.search(cleaned_text)
+        duration_match = _OFFTAKE_DURATION_PATTERN.search(cleaned_text)
+        product_list = list(products) if products else []
+
+        return OfftakeDetails(
+            product=product_list[0] if product_list else None,
+            volume=(
+                " ".join(volume_match.group(0).split())
+                if volume_match
+                else None
+            ),
+            duration=(
+                " ".join(duration_match.group(0).split())
+                if duration_match
+                else None
+            ),
+        )
 
     @classmethod
     def first_non_empty(
