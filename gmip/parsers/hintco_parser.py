@@ -5,6 +5,7 @@ from typing import Any
 
 from dateutil import parser as date_parser
 
+from gmip.entities.seed import COMPANY_NAME_CANDIDATES
 from gmip.intelligence.enums import EventType, IntelligenceType
 from gmip.intelligence.intelligence_object import (
     EventReference,
@@ -90,6 +91,16 @@ NAV_BOILERPLATE = (
 # (e.g. "Fact Sheet African Lot (AFL)") and would otherwise be captured as
 # part of the lot name.
 LOT_NAME_STOPWORDS = {"fact", "sheet", "access", "download", "platform"}
+
+# Drawn from the shared canonical-company seed (gmip/entities/seed.py) —
+# "Hintco" itself is excluded since every single Hintco page would
+# otherwise self-tag as mentioning its own publisher. Real evidence this
+# matters: Hintco's own captured news text includes "Hintco and
+# Fertiglobe sign landmark renewable ammonia supply contract" — a real
+# third-party company mention Hintco's parser never extracted before.
+COMPANY_CANDIDATES = [
+    name for name in COMPANY_NAME_CANDIDATES if name != "Hintco"
+]
 
 NEWS_EVENT_PHRASES: list[tuple[str, EventType]] = [
     ("boosts funding", EventType.FUNDING_APPROVED),
@@ -189,6 +200,7 @@ class HintcoParser(BaseParser):
                 collector_name="HintcoCollector",
                 tender_type=default_tender_type,
                 products=self._split_products(products),
+                companies=self.extract_keywords(body, COMPANY_CANDIDATES),
                 tender=TenderDetails(
                     buyer="Hintco",
                     opportunity_type=default_tender_type,
@@ -295,6 +307,9 @@ class HintcoParser(BaseParser):
 
             event = self._detect_news_event(f"{title} {body}")
             offtake = self.detect_offtake(f"{title} {body}")
+            companies = self.extract_keywords(
+                f"{title} {body}", COMPANY_CANDIDATES
+            )
 
             intelligence_object = self.build_intelligence_object(
                 title=title,
@@ -308,6 +323,7 @@ class HintcoParser(BaseParser):
                     else IntelligenceType.NEWS
                 ),
                 offtake=offtake,
+                companies=companies,
             )
 
             if offtake is not None:

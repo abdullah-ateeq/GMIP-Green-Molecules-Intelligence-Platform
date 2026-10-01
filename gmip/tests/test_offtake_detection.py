@@ -61,6 +61,19 @@ def test_detect_offtake_matches_explicit_offtake_agreement_phrase() -> None:
     assert result.product == "Green Ammonia"
 
 
+def test_detect_offtake_matches_supply_contract_phrase() -> None:
+    """
+    Real-world regression: "Hintco and Fertiglobe sign landmark renewable
+    ammonia supply contract" was not detected as an offtake until "supply
+    contract" was added as a signal phrase.
+    """
+    result = _DummyParser.detect_offtake(
+        "Hintco and Fertiglobe sign landmark renewable ammonia supply "
+        "contract."
+    )
+    assert result is not None
+
+
 def test_detect_offtake_handles_singular_tonne_without_duration() -> None:
     result = _DummyParser.detect_offtake(
         "Poland's ELQ enters 2,180 tonne hydrogen offtake deal."

@@ -204,3 +204,27 @@ def test_404_page_produces_no_intelligence_object() -> None:
     results = parser.parse(raw_record)
 
     assert results == []
+
+
+def test_card_extracts_real_company_mentions_and_excludes_self() -> None:
+    """
+    Company candidates are drawn from the shared entity seed list
+    (gmip/entities/seed.py) so HydrogenCouncilParser recognizes the same
+    companies as every other parser — but "Hydrogen Council" itself is
+    excluded, since every HC article would otherwise self-tag as
+    mentioning its own publisher.
+    """
+    parser = HydrogenCouncilParser()
+    raw_record = _raw_record(
+        "hydrogen_council_intelligence",
+        "Report March 11, 2025 Hydrogen: Closing the cost gap The "
+        "Hydrogen: Closing the Cost Gap report, developed with the "
+        "analytical support of McKinsey & Company, highlights progress "
+        "by the Hydrogen Council. Read More",
+    )
+
+    results = parser.parse(raw_record)
+    assert len(results) == 1
+
+    assert "McKinsey & Company" in results[0].companies
+    assert "Hydrogen Council" not in results[0].companies

@@ -7,6 +7,7 @@ from typing import Any
 from bs4 import BeautifulSoup
 from dateutil import parser as date_parser
 
+from gmip.entities.seed import COMPANY_NAME_CANDIDATES
 from gmip.intelligence.enums import ConfidenceLevel, EventType, IntelligenceType
 from gmip.intelligence.intelligence_object import (
     EventReference,
@@ -47,25 +48,10 @@ COUNTRY_CANDIDATES = [
     "Spain",
 ]
 
-COMPANY_CANDIDATES = [
-    "ACWA Power",
-    "Air Products",
-    "ADNOC",
-    "Aramco",
-    "Masdar",
-    "Fortescue",
-    "Iberdrola",
-    "TotalEnergies",
-    "BP",
-    "Shell",
-    "Yara",
-    "Fertiglobe",
-    "Plug Power",
-    "Nel",
-    "thyssenkrupp nucera",
-    "Siemens Energy",
-    "Cummins",
-]
+# Drawn from the shared canonical-company seed (gmip/entities/seed.py) so
+# every parser recognizes the same companies instead of maintaining
+# separate near-duplicate candidate lists.
+COMPANY_CANDIDATES = list(COMPANY_NAME_CANDIDATES)
 
 # gasworld.com/h2-view/ (the page H2 View now publishes as) renders each
 # article as <a href=".../story/<slug>/<id>.article/">Real headline</a> —

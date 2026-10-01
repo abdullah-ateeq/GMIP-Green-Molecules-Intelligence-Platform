@@ -133,3 +133,46 @@ def test_404_page_produces_no_intelligence_object() -> None:
     results = parser.parse(raw_record)
 
     assert results == []
+
+
+def test_news_item_extracts_real_company_mention() -> None:
+    """
+    Regression test for a real gap: Hintco's own captured news text
+    ("Hintco and Fertiglobe sign landmark renewable ammonia supply
+    contract") was never extracting any company at all — HintcoParser
+    had zero company extraction wired in until this fix.
+    """
+    parser = HintcoParser()
+    raw_record = _raw_record(
+        "hintco_news",
+        "Hintco and Fertiglobe sign landmark renewable ammonia supply "
+        "contract Hintco GmbH announces that it has formally signed a "
+        "contract with Fertiglobe, the successful bidder in the first "
+        "H2Global pilot auction for renewable ammonia. Read more",
+    )
+
+    results = parser.parse(raw_record)
+    assert len(results) == 1
+
+    item = results[0]
+    assert "Fertiglobe" in item.companies
+    assert item.intelligence_type == IntelligenceType.OFFTAKE
+
+
+def test_news_item_does_not_self_tag_hintco_as_a_company_mention() -> None:
+    """
+    "Hintco" is excluded from its own parser's company candidates — every
+    single Hintco article would otherwise self-tag as mentioning its own
+    publisher, which is noise, not a real third-party mention.
+    """
+    parser = HintcoParser()
+    raw_record = _raw_record(
+        "hintco_news",
+        "Hintco starts second H2Global tender worth EUR 2.5 billion "
+        "Hintco is announcing today the start of the second tender. "
+        "Read more",
+    )
+
+    results = parser.parse(raw_record)
+    assert len(results) == 1
+    assert "Hintco" not in results[0].companies

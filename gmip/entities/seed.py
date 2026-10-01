@@ -31,7 +31,20 @@ COMPANY_SEED: list[tuple[str, list[str]]] = [
     ("H2Global", ["H2Global Stiftung"]),
     ("Hintco", []),
     ("Hydrogen Council", []),
+    # Confirmed from real captured Hydrogen Council report text (see
+    # Data/Raw/hydrogen_council_intelligence.txt) — co-authoring/advisory
+    # firms that genuinely appear in collected content, not invented.
+    ("McKinsey & Company", ["McKinsey"]),
+    ("Wood plc", []),
+    ("Baringa", []),
 ]
+
+# Flat canonical-name list for parser-level extract_keywords() candidates
+# (section 39 of the entity-resolution brief: conservative, deterministic
+# keyword matching, not a capitalized-phrase guesser). One shared list so
+# every parser recognizes the same companies instead of maintaining N
+# near-duplicate candidate lists.
+COMPANY_NAME_CANDIDATES: list[str] = [name for name, _ in COMPANY_SEED]
 
 
 def seed_companies() -> int:

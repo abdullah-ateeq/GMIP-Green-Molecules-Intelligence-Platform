@@ -6,6 +6,7 @@ from typing import Any
 from bs4 import BeautifulSoup
 from dateutil import parser as date_parser
 
+from gmip.entities.seed import COMPANY_NAME_CANDIDATES
 from gmip.intelligence.enums import EventType, IntelligenceType
 from gmip.intelligence.intelligence_object import (
     EventReference,
@@ -103,10 +104,12 @@ REGION_CANDIDATES = [
     "North America", "South America", "Central & South America",
 ]
 
+# Drawn from the shared canonical-company seed (gmip/entities/seed.py) so
+# every parser recognizes the same companies — "Hydrogen Council" itself
+# is excluded since every single HC page would otherwise self-tag as
+# mentioning its own publisher, which is noise, not a real mention.
 COMPANY_CANDIDATES = [
-    "ACWA Power", "Air Products", "ADNOC", "Aramco", "Masdar",
-    "Fortescue", "Iberdrola", "TotalEnergies", "BP", "Shell", "Yara",
-    "Fertiglobe", "Baker Hughes",
+    name for name in COMPANY_NAME_CANDIDATES if name != "Hydrogen Council"
 ]
 
 # Anchor text this short is reliably site navigation ("Become a Member" is

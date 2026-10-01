@@ -31,6 +31,7 @@ OFFTAKE_SIGNAL_PHRASES = (
     "offtake contract",
     "offtaker",
     "supply agreement",
+    "supply contract",
     "purchase agreement",
     "sales agreement",
     "sale and purchase agreement",
