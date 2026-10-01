@@ -85,6 +85,16 @@ def safe_filename(name: str) -> str:
 # PAGE VALIDATION
 # ==========================================================
 
+class AccessBlockedError(RuntimeError):
+    """
+    Raised specifically when a bot-detection/access-control challenge
+    (e.g. Cloudflare) rejects a page — distinct from a plain HTTP error
+    or short/malformed content, so callers can classify this case as
+    BLOCKED_BY_ACCESS_CONTROL rather than a generic processing failure
+    or (incorrectly) a broken collector/parser implementation.
+    """
+
+
 def validate_downloaded_page(
     url: str,
     html: str,
@@ -121,7 +131,7 @@ def validate_downloaded_page(
         )
 
     if detected_markers:
-        raise RuntimeError(
+        raise AccessBlockedError(
             "Cloudflare challenge page detected for "
             f"{url}. The page was rejected and was not saved. "
             f"Detected marker: {detected_markers[0]}"

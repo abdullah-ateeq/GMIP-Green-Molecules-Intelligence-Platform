@@ -51,6 +51,9 @@ export interface SourceStatus {
   last_status: string | null
   last_error: string | null
   failure_count: number
+  freshness: 'CURRENT' | 'STALE' | 'VERY_STALE' | 'NEVER_COLLECTED'
+  implementation_status: 'HEALTHY' | 'NEEDS_ATTENTION'
+  access_status: 'NORMAL' | 'BLOCKED'
 }
 
 export interface CountryMention {

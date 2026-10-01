@@ -7,8 +7,36 @@ from collections.abc import Iterable
 import requests
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
-from hintco_collector import process_source
+import database
+from hintco_collector import AccessBlockedError, process_source
 from models import CollectionResult
+
+# Legacy per-source CollectionResult.status values that represent a real,
+# successful page fetch (change-detected or not) — anything else is a
+# failure of some kind for source-health purposes.
+_SUCCESS_STATUSES = {"INITIAL_SNAPSHOT", "CHANGED", "NO_CHANGE"}
+
+
+def _registry_source_id(page_source_id: str) -> str:
+    """
+    Map a page-level source_id (e.g. "hydrogen_council_newsroom") to the
+    registry-level source_id the `sources` table / Sources page actually
+    tracks (e.g. "hydrogen_council"). H2 View has exactly one page, so it
+    maps to itself.
+    """
+    from config import H2_VIEW_SOURCES, HINTCO_SOURCES, HYDROGEN_COUNCIL_SOURCES
+
+    page_groups = (
+        (HINTCO_SOURCES, "hintco"),
+        (HYDROGEN_COUNCIL_SOURCES, "hydrogen_council"),
+        (H2_VIEW_SOURCES, "h2_view"),
+    )
+
+    for sources, registry_source_id in page_groups:
+        if any(s["source_id"] == page_source_id for s in sources):
+            return registry_source_id
+
+    return page_source_id
 
 
 def run_sources(
@@ -18,8 +46,15 @@ def run_sources(
     Process a collection of source definitions.
 
     This function is independent of a particular collector. Hintco,
-    Hydrogen Council, and future collectors can all pass their selected
-    source dictionaries into this shared execution engine.
+    Hydrogen Council, H2 View, and future collectors all pass their
+    selected source dictionaries into this shared execution engine.
+
+    Every attempt is recorded via database.record_source_attempt() (per
+    real page_source_id) — separate from whether this specific run
+    detected a content change — so the Sources page can distinguish
+    "the collector/parser implementation is broken" from "this source is
+    temporarily blocked by access control", and so a transient block
+    never erases the last successfully collected intelligence.
     """
 
     results: list[CollectionResult] = []
@@ -29,6 +64,19 @@ def run_sources(
 
         try:
             result = process_source(source)
+
+        except AccessBlockedError as exc:
+            result = _create_error_result(
+                source=source,
+                status="BLOCKED_BY_ACCESS_CONTROL",
+                message=(
+                    "The source is currently blocked by an access-control "
+                    "challenge (e.g. Cloudflare). GMIP does not attempt to "
+                    "bypass this — it will retry on the next normal "
+                    "scheduled collection."
+                ),
+                error=exc,
+            )
 
         except PlaywrightTimeoutError as exc:
             result = _create_error_result(
@@ -73,9 +121,27 @@ def run_sources(
                 error=exc,
             )
 
+        _record_attempt(result)
         results.append(result)
 
     return results
+
+
+def _record_attempt(result: CollectionResult) -> None:
+    attempt_status = (
+        "SUCCESS" if result.status in _SUCCESS_STATUSES else result.status
+    )
+
+    try:
+        database.record_source_attempt(
+            source_id=_registry_source_id(result.source_id),
+            status=attempt_status,
+            error=result.error,
+        )
+    except Exception as exc:
+        # Source-health bookkeeping must never break the actual
+        # collection run it's recording.
+        print(f"Failed to record source attempt for {result.source_id}: {exc}")
 
 
 def _create_error_result(

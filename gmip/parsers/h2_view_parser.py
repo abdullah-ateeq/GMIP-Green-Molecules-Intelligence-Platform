@@ -82,6 +82,18 @@ CARD_END_PATTERN = re.compile(
 # single capitalized word (e.g. "A group of...") is never eaten by mistake.
 BYLINE_PATTERN = re.compile(r"^By\s+(?:[A-Z][a-z]+\s*){1,3}")
 
+# Every real article URL ends in a stable numeric ID (".../<id>.article/")
+# regardless of which domain/slug it's served under — this is the most
+# robust identity signal available without live redirect-following, so
+# the same story never becomes duplicate intelligence just because the
+# site migrated from h2-view.com to gasworld.com or re-slugged a title.
+ARTICLE_ID_PATTERN = re.compile(r"/(\d+)\.article/?")
+
+
+def _article_id(url: str) -> str | None:
+    match = ARTICLE_ID_PATTERN.search(url)
+    return match.group(1) if match else None
+
 
 def _extract_article_links(html: str | None) -> list[tuple[str, str]]:
     """
@@ -111,7 +123,10 @@ def _extract_article_links(html: str | None) -> list[tuple[str, str]]:
         if ARTICLE_HREF_MARKER not in href or ARTICLE_HREF_SUFFIX not in href:
             continue
 
-        if "gasworld.com" not in href:
+        # Accept both the current domain and the legacy one (section 10
+        # of the access-resilience brief) — the same article's numeric ID
+        # is what actually dedupes it (see _article_id()), not the host.
+        if not any(domain in href for domain in ("gasworld.com", "h2-view.com")):
             continue
 
         # First occurrence wins (the same story sometimes appears in both a
@@ -198,7 +213,12 @@ class H2ViewParser(BaseParser):
         article_links = _extract_article_links(html)
 
         if not article_links:
-            return [self._build_whole_page_object(raw_record)]
+            # The landing page itself is discovery input only — never an
+            # IntelligenceObject on its own (section 8 of the access-
+            # resilience brief). It's already collected as a RawDocument
+            # for change detection/source health; nothing further to do
+            # here if no real article cards were found on it.
+            return []
 
         text = _flatten_text(html)
         reference = self._resolve_reference_time(raw_record)
@@ -242,7 +262,7 @@ class H2ViewParser(BaseParser):
             )
             search_from = card_match.end()
 
-        return objects or [self._build_whole_page_object(raw_record)]
+        return objects
 
     @staticmethod
     def _resolve_reference_time(raw_record: dict[str, Any]) -> datetime:
@@ -276,6 +296,8 @@ class H2ViewParser(BaseParser):
         products = self.extract_keywords(combined_text, PRODUCT_CANDIDATES)
         offtake = self.detect_offtake(combined_text, products=products)
 
+        article_id = _article_id(url)
+
         intelligence_object = self.build_intelligence_object(
             title=title,
             source_url=url,
@@ -291,6 +313,10 @@ class H2ViewParser(BaseParser):
             companies=self.extract_keywords(combined_text, COMPANY_CANDIDATES),
             categories=[category] if category else [],
             offtake=offtake,
+            # Stable across a domain migration (h2-view.com -> gasworld.com)
+            # or a re-slugged title — falls back to the default
+            # source_id:title identity when no article ID is extractable.
+            identity_key=f"h2_view:{article_id}" if article_id else None,
             metadata={"discovery_source": True},
         )
 
@@ -303,21 +329,3 @@ class H2ViewParser(BaseParser):
             )
 
         return intelligence_object
-
-    def _build_whole_page_object(
-        self,
-        raw_record: dict[str, Any],
-    ) -> IntelligenceObject:
-        text = raw_record.get("text") or ""
-
-        return self.build_intelligence_object(
-            title=raw_record["title"],
-            source_url=raw_record["source_url"],
-            summary=self.clean_text(text)[:600] or None,
-            collector_name="H2ViewCollector",
-            confidence=ConfidenceLevel.MEDIUM,
-            products=self.extract_keywords(text, PRODUCT_CANDIDATES),
-            countries=self.extract_keywords(text, COUNTRY_CANDIDATES),
-            companies=self.extract_keywords(text, COMPANY_CANDIDATES),
-            metadata={"discovery_source": True},
-        )

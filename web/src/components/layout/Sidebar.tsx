@@ -46,7 +46,7 @@ const groups: NavGroup[] = [
   {
     label: 'System',
     items: [
-      { label: 'Sources', icon: Database, disabled: true },
+      { label: 'Sources', icon: Database, path: '/sources' },
       { label: 'Reports', icon: FileText, disabled: true },
       { label: 'Settings', icon: Settings, disabled: true },
     ],

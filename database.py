@@ -981,10 +981,69 @@ def get_source_registry_status() -> list[dict]:
             """
         ).fetchall()
 
-        return [
-            dict(row)
-            for row in rows
-        ]
+        return [_with_source_health_fields(dict(row)) for row in rows]
+
+
+# Statuses that represent this source being genuinely reachable but
+# currently refused by the site's own access control — never implies the
+# collector/parser implementation itself is broken.
+ACCESS_BLOCKED_STATUSES = {"BLOCKED_BY_ACCESS_CONTROL"}
+
+# Statuses that represent our own code failing unexpectedly, as opposed
+# to the remote site blocking/rejecting the request.
+IMPLEMENTATION_FAILURE_STATUSES = {"PROCESSING_ERROR"}
+
+_FRESHNESS_STALE_AFTER_DAYS = 2
+_FRESHNESS_VERY_STALE_AFTER_DAYS = 7
+
+
+def _with_source_health_fields(source: dict) -> dict:
+    """
+    Add derived fields the Sources UI needs (section 4/6 of the H2 View
+    access-resilience brief): freshness of the last successful
+    collection, and a distinction between "the implementation is broken"
+    vs. "the site is currently blocking access" vs. "a normal transient
+    error" — all computed from the same last_status/last_successful_at
+    this function already has, no new concept duplicated elsewhere.
+    """
+    last_successful_at = source.get("last_successful_at")
+
+    if not last_successful_at:
+        freshness = "NEVER_COLLECTED"
+    else:
+        try:
+            age_days = (
+                datetime.now() - datetime.fromisoformat(last_successful_at)
+            ).total_seconds() / 86400
+        except ValueError:
+            age_days = None
+
+        if age_days is None:
+            freshness = "NEVER_COLLECTED"
+        elif age_days < _FRESHNESS_STALE_AFTER_DAYS:
+            freshness = "CURRENT"
+        elif age_days < _FRESHNESS_VERY_STALE_AFTER_DAYS:
+            freshness = "STALE"
+        else:
+            freshness = "VERY_STALE"
+
+    last_status = source.get("last_status")
+
+    if last_status in IMPLEMENTATION_FAILURE_STATUSES:
+        implementation_status = "NEEDS_ATTENTION"
+    else:
+        implementation_status = "HEALTHY"
+
+    access_status = (
+        "BLOCKED" if last_status in ACCESS_BLOCKED_STATUSES else "NORMAL"
+    )
+
+    return {
+        **source,
+        "freshness": freshness,
+        "implementation_status": implementation_status,
+        "access_status": access_status,
+    }
 
 
 # ==========================================================

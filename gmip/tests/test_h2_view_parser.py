@@ -147,15 +147,18 @@ def test_parse_extracts_known_products_countries_companies() -> None:
     assert card.source_organisation == "H2 View"
 
 
-def test_no_html_falls_back_to_whole_page_object_not_fabricated() -> None:
+def test_no_html_produces_no_intelligence_object() -> None:
+    """
+    The landing page itself is discovery input only, never an
+    IntelligenceObject on its own (access-resilience brief, section 8) —
+    it's already collected as a RawDocument for change detection.
+    """
     parser = H2ViewParser()
 
     raw_record = _raw_record(html=None)
     results = parser.parse(raw_record)
 
-    assert len(results) == 1
-    assert results[0].source_url == "https://www.gasworld.com/h2-view/"
-    assert results[0].title == "H2 View | gasworld"
+    assert results == []
 
 
 def test_404_page_produces_no_intelligence_object() -> None:
@@ -169,7 +172,7 @@ def test_404_page_produces_no_intelligence_object() -> None:
     assert results == []
 
 
-def test_html_with_no_matching_article_links_falls_back_to_whole_page() -> None:
+def test_html_with_no_matching_article_links_produces_no_intelligence_object() -> None:
     parser = H2ViewParser()
 
     raw_record = _raw_record(
@@ -177,5 +180,60 @@ def test_html_with_no_matching_article_links_falls_back_to_whole_page() -> None:
     )
     results = parser.parse(raw_record)
 
+    assert results == []
+
+
+def test_identity_key_based_on_article_id_survives_domain_migration() -> None:
+    """
+    Section 10-11 of the access-resilience brief: the same article must
+    not become duplicate intelligence merely because H2 View's domain
+    changed from h2-view.com to gasworld.com — both URL forms carry the
+    same trailing numeric article ID, which becomes the identity_key.
+    """
+    parser = H2ViewParser()
+
+    gasworld_html = """
+    <html><body>
+    <a href="https://www.gasworld.com/story/uniper-locks-in-e-saf/2260404.article/">
+      Uniper locks in 40,000 tonnes of e-SAF
+    </a>
+    Mobility 3 days ago 1 min read
+    </body></html>
+    """
+    legacy_html = """
+    <html><body>
+    <a href="https://www.h2-view.com/story/uniper-locks-in-e-saf-renamed/2260404.article/">
+      Uniper locks in 40,000 tonnes of e-SAF
+    </a>
+    Mobility 3 days ago 1 min read
+    </body></html>
+    """
+
+    gasworld_record = _raw_record(html=gasworld_html)
+    legacy_record = _raw_record(html=legacy_html)
+
+    gasworld_results = parser.parse(gasworld_record)
+    legacy_results = parser.parse(legacy_record)
+
+    assert len(gasworld_results) == 1
+    assert len(legacy_results) == 1
+    assert gasworld_results[0].identity_key == legacy_results[0].identity_key
+    assert gasworld_results[0].identity_key == "h2_view:2260404"
+
+
+def test_identity_key_falls_back_safely_without_article_id() -> None:
+    parser = H2ViewParser()
+    html = """
+    <html><body>
+    <a href="https://www.gasworld.com/story/example/not-numeric.article/">
+      A feature page headline that is long enough to match
+    </a>
+    Mobility 1 day ago 1 min read
+    </body></html>
+    """
+    raw_record = _raw_record(html=html)
+
+    results = parser.parse(raw_record)
+
     assert len(results) == 1
-    assert results[0].source_url == "https://www.gasworld.com/h2-view/"
+    assert results[0].identity_key is not None
