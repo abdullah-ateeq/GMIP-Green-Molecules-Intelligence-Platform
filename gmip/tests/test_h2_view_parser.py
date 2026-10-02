@@ -140,7 +140,10 @@ def test_parse_extracts_known_products_countries_companies() -> None:
     ]
     assert card.products == ["Green Ammonia"]
     assert card.countries == ["Saudi Arabia"]
-    assert card.companies == ["ACWA Power", "Masdar"]
+    # "ACWA" (a confirmed alias) is also its own whole-word match inside
+    # "ACWA Power" — both mentions are preserved and both resolve to the
+    # same canonical company during entity resolution.
+    assert card.companies == ["ACWA", "ACWA Power", "Masdar"]
     assert card.confidence == ConfidenceLevel.MEDIUM
     assert card.intelligence_type == IntelligenceType.NEWS
     assert card.parser_name == "H2ViewParser"

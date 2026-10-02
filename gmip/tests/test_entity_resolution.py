@@ -278,8 +278,10 @@ def test_backfill_report_is_honest_about_empty_project_data(
     tmp_path, monkeypatch
 ) -> None:
     """
-    No parser currently extracts `projects` — backfill against such data
-    must report zero canonical projects, never fabricate one.
+    A record with no project mention in its own data must never produce
+    a fabricated project mention — this is true even though a couple of
+    canonical PROJECT entities now exist from the seed list (same as
+    companies being seeded ahead of any real mention).
     """
     _setup_db(tmp_path, monkeypatch)
 
@@ -288,8 +290,8 @@ def test_backfill_report_is_honest_about_empty_project_data(
 
     report = run_entity_backfill()
 
-    assert report["canonical_projects"] == 0
     assert report["project_mentions"] == 0
+    assert report["projects_created"] == 0
 
 
 # ------------------------------------------------------------

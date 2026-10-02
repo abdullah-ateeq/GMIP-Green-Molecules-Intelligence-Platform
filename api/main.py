@@ -201,9 +201,12 @@ def entities_company_detail(entity_id: str) -> dict:
 
 @app.get("/api/entities/projects")
 def entities_projects(limit: int = 200) -> list[dict]:
+    # Only projects with at least one real intelligence mention — a
+    # seeded-but-never-mentioned project must not appear as if it were a
+    # real result (entity-extraction brief, section 29).
     return [
         _serialize_entity(row)
-        for row in database.get_entities("PROJECT", limit=limit)
+        for row in database.get_entities_with_evidence("PROJECT", limit=limit)
     ]
 
 
@@ -218,6 +221,11 @@ def entities_search(q: str, entity_type: str | None = None) -> list[dict]:
         _serialize_entity(row)
         for row in database.search_entities(q, entity_type=entity_type)
     ]
+
+
+@app.get("/api/intelligence/search")
+def intelligence_search(q: str, limit: int = 10) -> list[dict]:
+    return database.search_intelligence_objects(q, limit=limit)
 
 
 @app.get("/api/analytics/countries")

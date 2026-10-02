@@ -6,7 +6,7 @@ from typing import Any
 from bs4 import BeautifulSoup
 from dateutil import parser as date_parser
 
-from gmip.entities.seed import COMPANY_NAME_CANDIDATES
+from gmip.entities.seed import get_company_candidates, get_project_candidates
 from gmip.intelligence.enums import EventType, IntelligenceType
 from gmip.intelligence.intelligence_object import (
     EventReference,
@@ -104,13 +104,18 @@ REGION_CANDIDATES = [
     "North America", "South America", "Central & South America",
 ]
 
-# Drawn from the shared canonical-company seed (gmip/entities/seed.py) so
-# every parser recognizes the same companies — "Hydrogen Council" itself
-# is excluded since every single HC page would otherwise self-tag as
-# mentioning its own publisher, which is noise, not a real mention.
-COMPANY_CANDIDATES = [
-    name for name in COMPANY_NAME_CANDIDATES if name != "Hydrogen Council"
-]
+def _company_candidates() -> list[str]:
+    """
+    Drawn from the shared canonical-company dictionary (seed + whatever
+    has since been resolved into the database — gmip/entities/seed.py),
+    computed fresh per parse() call rather than cached at import time so
+    newly-created companies become recognizable in later parses.
+    "Hydrogen Council" itself is excluded since every single HC page
+    would otherwise self-tag as mentioning its own publisher.
+    """
+    return [
+        name for name in get_company_candidates() if name != "Hydrogen Council"
+    ]
 
 # Anchor text this short is reliably site navigation ("Become a Member" is
 # 15 chars, "Hydrogen in Action" is 18) — set comfortably above those but
@@ -244,15 +249,28 @@ class HydrogenCouncilParser(BaseParser):
         if self.is_soft_404(raw_record.get("title"), text):
             return []
 
+        company_candidates = _company_candidates()
+        project_candidates = get_project_candidates()
+
         categories = FAMILY_CATEGORIES.get(page_source_id)
 
         if categories:
-            objects = self._parse_cards(raw_record, text, categories)
+            objects = self._parse_cards(
+                raw_record,
+                text,
+                categories,
+                company_candidates,
+                project_candidates,
+            )
 
             if objects:
                 return objects
 
-        return [self._build_whole_page_object(raw_record, text)]
+        return [
+            self._build_whole_page_object(
+                raw_record, text, company_candidates, project_candidates
+            )
+        ]
 
     # ------------------------------------------------------------
     # CARD-LISTING FAMILIES (intelligence / newsroom / hydrogen_in_action)
@@ -263,6 +281,8 @@ class HydrogenCouncilParser(BaseParser):
         raw_record: dict[str, Any],
         text: str,
         categories: list[str],
+        company_candidates: list[str],
+        project_candidates: list[str],
     ) -> list[IntelligenceObject]:
         category_alternation = "|".join(
             re.escape(category)
@@ -319,8 +339,12 @@ class HydrogenCouncilParser(BaseParser):
                 category, IntelligenceType.NEWS
             )
             products = self.extract_keywords(body, PRODUCT_CANDIDATES)
-            offtake = self.detect_offtake(
-                f"{title} {body}", products=products
+            combined_text = f"{title} {body}"
+            offtake = self.detect_offtake(combined_text, products=products)
+            companies = self.extract_keywords(body, company_candidates)
+            projects = self.extract_keywords(body, project_candidates)
+            relationships = self.detect_relationships(
+                combined_text, companies, projects
             )
 
             if offtake is not None:
@@ -337,8 +361,14 @@ class HydrogenCouncilParser(BaseParser):
                 products=products,
                 countries=self.extract_keywords(body, COUNTRY_CANDIDATES),
                 regions=self.extract_keywords(body, REGION_CANDIDATES),
-                companies=self.extract_keywords(body, COMPANY_CANDIDATES),
+                companies=companies,
+                projects=projects,
                 offtake=offtake,
+                metadata=(
+                    {"relationship_candidates": relationships}
+                    if relationships
+                    else {}
+                ),
             )
 
             if offtake is not None:
@@ -407,7 +437,13 @@ class HydrogenCouncilParser(BaseParser):
         self,
         raw_record: dict[str, Any],
         text: str,
+        company_candidates: list[str],
+        project_candidates: list[str],
     ) -> IntelligenceObject:
+        companies = self.extract_keywords(text, company_candidates)
+        projects = self.extract_keywords(text, project_candidates)
+        relationships = self.detect_relationships(text, companies, projects)
+
         return self.build_intelligence_object(
             title=raw_record["title"],
             source_url=raw_record["source_url"],
@@ -417,5 +453,11 @@ class HydrogenCouncilParser(BaseParser):
             products=self.extract_keywords(text, PRODUCT_CANDIDATES),
             countries=self.extract_keywords(text, COUNTRY_CANDIDATES),
             regions=self.extract_keywords(text, REGION_CANDIDATES),
-            companies=self.extract_keywords(text, COMPANY_CANDIDATES),
+            companies=companies,
+            projects=projects,
+            metadata=(
+                {"relationship_candidates": relationships}
+                if relationships
+                else {}
+            ),
         )

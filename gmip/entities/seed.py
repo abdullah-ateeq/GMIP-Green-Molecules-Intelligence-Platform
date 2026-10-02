@@ -46,6 +46,84 @@ COMPANY_SEED: list[tuple[str, list[str]]] = [
 # near-duplicate candidate lists.
 COMPANY_NAME_CANDIDATES: list[str] = [name for name, _ in COMPANY_SEED]
 
+# A small, genuinely well-known set of named green hydrogen/ammonia
+# projects — kept deliberately short. This is a seed to extract FROM,
+# not a claim that these projects are currently active in GMIP's
+# collected data; a project only becomes a canonical entity once a
+# parser actually finds its name mentioned in real text (section 18:
+# "do not automatically create a Project entity from any capitalized
+# phrase... only when an explicit project name exists").
+PROJECT_SEED: list[tuple[str, list[str]]] = [
+    ("NEOM Green Hydrogen Project", ["NGHC Project"]),
+    ("HyDeal Ambition", []),
+]
+
+PROJECT_NAME_CANDIDATES: list[str] = [name for name, _ in PROJECT_SEED]
+
+
+def _flatten_with_aliases(seed: list[tuple[str, list[str]]]) -> list[str]:
+    names: list[str] = []
+
+    for canonical_name, aliases in seed:
+        names.append(canonical_name)
+        names.extend(aliases)
+
+    return names
+
+
+def get_company_candidates() -> list[str]:
+    """
+    Parser-facing extraction candidates: the seed list's canonical names
+    AND aliases (so a bare "NGHC" in body text is recognized, not just
+    the full "NEOM Green Hydrogen Company"), plus any canonical company
+    already in the database that isn't in the seed — so a company
+    created later via NEW_ENTITY resolution becomes recognizable in
+    future parsing too (section 9 of the entity-extraction brief: build
+    the matcher from existing canonical entities, not only a static
+    list). Falls back to the static seed alone if the database isn't
+    reachable, so parsing never breaks on this.
+    """
+    candidates = set(_flatten_with_aliases(COMPANY_SEED))
+
+    try:
+        import database
+
+        for entity in database.get_entities("COMPANY", limit=1000):
+            candidates.add(entity["canonical_name"])
+
+            import json
+
+            try:
+                candidates.update(json.loads(entity["aliases_json"] or "[]"))
+            except (ValueError, TypeError):
+                pass
+    except Exception:
+        pass
+
+    return sorted(candidates, key=len, reverse=True)
+
+
+def get_project_candidates() -> list[str]:
+    """Project equivalent of get_company_candidates(); see its docstring."""
+    candidates = set(_flatten_with_aliases(PROJECT_SEED))
+
+    try:
+        import database
+
+        for entity in database.get_entities("PROJECT", limit=1000):
+            candidates.add(entity["canonical_name"])
+
+            import json
+
+            try:
+                candidates.update(json.loads(entity["aliases_json"] or "[]"))
+            except (ValueError, TypeError):
+                pass
+    except Exception:
+        pass
+
+    return sorted(candidates, key=len, reverse=True)
+
 
 def seed_companies() -> int:
     """
@@ -68,6 +146,36 @@ def seed_companies() -> int:
                 entity_type="COMPANY",
                 canonical_name=canonical_name,
                 normalized_name=normalize_company_name(canonical_name),
+                aliases=aliases,
+            )
+            created += 1
+        else:
+            entity_id = existing["entity_id"]
+
+        for alias in aliases:
+            database.add_entity_alias(entity_id, alias)
+
+    return created
+
+
+def seed_projects() -> int:
+    """Project equivalent of seed_companies(); see its docstring."""
+    import database
+
+    from gmip.entities.normalization import normalize_project_name
+
+    created = 0
+
+    for canonical_name, aliases in PROJECT_SEED:
+        existing = database.get_entity_by_normalized_name(
+            "PROJECT", normalize_project_name(canonical_name)
+        )
+
+        if existing is None:
+            entity_id = database.create_entity(
+                entity_type="PROJECT",
+                canonical_name=canonical_name,
+                normalized_name=normalize_project_name(canonical_name),
                 aliases=aliases,
             )
             created += 1

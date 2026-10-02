@@ -7,7 +7,7 @@ from typing import Any
 from bs4 import BeautifulSoup
 from dateutil import parser as date_parser
 
-from gmip.entities.seed import COMPANY_NAME_CANDIDATES
+from gmip.entities.seed import get_company_candidates, get_project_candidates
 from gmip.intelligence.enums import ConfidenceLevel, EventType, IntelligenceType
 from gmip.intelligence.intelligence_object import (
     EventReference,
@@ -48,10 +48,6 @@ COUNTRY_CANDIDATES = [
     "Spain",
 ]
 
-# Drawn from the shared canonical-company seed (gmip/entities/seed.py) so
-# every parser recognizes the same companies instead of maintaining
-# separate near-duplicate candidate lists.
-COMPANY_CANDIDATES = list(COMPANY_NAME_CANDIDATES)
 
 # gasworld.com/h2-view/ (the page H2 View now publishes as) renders each
 # article as <a href=".../story/<slug>/<id>.article/">Real headline</a> —
@@ -222,6 +218,8 @@ class H2ViewParser(BaseParser):
 
         text = _flatten_text(html)
         reference = self._resolve_reference_time(raw_record)
+        company_candidates = get_company_candidates()
+        project_candidates = get_project_candidates()
 
         objects: list[IntelligenceObject] = []
         search_from = 0
@@ -234,7 +232,10 @@ class H2ViewParser(BaseParser):
                 # shouldn't normally happen — still produce a minimal,
                 # non-fabricated object rather than silently dropping it.
                 objects.append(
-                    self._build_card_object(title, url, None, None, None)
+                    self._build_card_object(
+                        title, url, None, None, None,
+                        company_candidates, project_candidates,
+                    )
                 )
                 continue
 
@@ -243,7 +244,10 @@ class H2ViewParser(BaseParser):
 
             if not card_match:
                 objects.append(
-                    self._build_card_object(title, url, None, None, None)
+                    self._build_card_object(
+                        title, url, None, None, None,
+                        company_candidates, project_candidates,
+                    )
                 )
                 search_from = body_start
                 continue
@@ -257,7 +261,8 @@ class H2ViewParser(BaseParser):
 
             objects.append(
                 self._build_card_object(
-                    title, url, category, published_at, summary
+                    title, url, category, published_at, summary,
+                    company_candidates, project_candidates,
                 )
             )
             search_from = card_match.end()
@@ -291,12 +296,24 @@ class H2ViewParser(BaseParser):
         category: str | None,
         published_at: str | None,
         summary: str | None,
+        company_candidates: list[str],
+        project_candidates: list[str],
     ) -> IntelligenceObject:
         combined_text = " ".join(filter(None, [title, summary]))
         products = self.extract_keywords(combined_text, PRODUCT_CANDIDATES)
         offtake = self.detect_offtake(combined_text, products=products)
+        companies = self.extract_keywords(combined_text, company_candidates)
+        projects = self.extract_keywords(combined_text, project_candidates)
+        relationships = self.detect_relationships(
+            combined_text, companies, projects
+        )
 
         article_id = _article_id(url)
+
+        metadata: dict[str, Any] = {"discovery_source": True}
+
+        if relationships:
+            metadata["relationship_candidates"] = relationships
 
         intelligence_object = self.build_intelligence_object(
             title=title,
@@ -310,14 +327,15 @@ class H2ViewParser(BaseParser):
             ),
             products=products,
             countries=self.extract_keywords(combined_text, COUNTRY_CANDIDATES),
-            companies=self.extract_keywords(combined_text, COMPANY_CANDIDATES),
+            companies=companies,
+            projects=projects,
             categories=[category] if category else [],
             offtake=offtake,
             # Stable across a domain migration (h2-view.com -> gasworld.com)
             # or a re-slugged title — falls back to the default
             # source_id:title identity when no article ID is extractable.
             identity_key=f"h2_view:{article_id}" if article_id else None,
-            metadata={"discovery_source": True},
+            metadata=metadata,
         )
 
         if offtake is not None:

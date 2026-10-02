@@ -1,10 +1,11 @@
-import { Bell, Download, Moon, RefreshCw, Search, Sun, UserCircle } from 'lucide-react'
+import { Bell, Download, Moon, RefreshCw, Sun, UserCircle } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { api } from '../../lib/api'
 import { applyTheme, getStoredTheme, type Theme } from '../../lib/theme'
 import { timeAgo } from '../../lib/utils'
 import { cn } from '../../lib/utils'
 import { useFetch } from '../../lib/useFetch'
+import { GlobalSearch } from './GlobalSearch'
 
 export function TopBar() {
   const [theme, setTheme] = useState<Theme>('dark')
@@ -43,14 +44,7 @@ export function TopBar() {
 
   return (
     <header className="flex h-16 shrink-0 items-center justify-between border-b border-border bg-surface px-6">
-      <div className="flex max-w-md flex-1 items-center gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2">
-        <Search className="h-4 w-4 text-text-muted" strokeWidth={1.75} />
-        <input
-          type="text"
-          placeholder="Search projects, companies, tenders, policies..."
-          className="w-full bg-transparent text-[13px] text-text-primary placeholder:text-text-muted focus:outline-none"
-        />
-      </div>
+      <GlobalSearch />
 
       <div className="flex items-center gap-3">
         <div

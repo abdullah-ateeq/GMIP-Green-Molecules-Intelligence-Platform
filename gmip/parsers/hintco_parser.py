@@ -5,7 +5,7 @@ from typing import Any
 
 from dateutil import parser as date_parser
 
-from gmip.entities.seed import COMPANY_NAME_CANDIDATES
+from gmip.entities.seed import get_company_candidates, get_project_candidates
 from gmip.intelligence.enums import EventType, IntelligenceType
 from gmip.intelligence.intelligence_object import (
     EventReference,
@@ -98,9 +98,11 @@ LOT_NAME_STOPWORDS = {"fact", "sheet", "access", "download", "platform"}
 # matters: Hintco's own captured news text includes "Hintco and
 # Fertiglobe sign landmark renewable ammonia supply contract" — a real
 # third-party company mention Hintco's parser never extracted before.
-COMPANY_CANDIDATES = [
-    name for name in COMPANY_NAME_CANDIDATES if name != "Hintco"
-]
+def _company_candidates() -> list[str]:
+    """Computed fresh per parse() call — see hydrogen_council_parser.py's
+    identical helper for why (newly-resolved companies become
+    recognizable in later parses, not just the static seed)."""
+    return [name for name in get_company_candidates() if name != "Hintco"]
 
 NEWS_EVENT_PHRASES: list[tuple[str, EventType]] = [
     ("boosts funding", EventType.FUNDING_APPROVED),
@@ -144,14 +146,23 @@ class HintcoParser(BaseParser):
         if self.is_soft_404(raw_record.get("title"), text):
             return []
 
+        company_candidates = _company_candidates()
+
         if page_source_id in LOT_PAGE_SOURCE_IDS:
-            objects = self._parse_lots(raw_record, text)
+            # Deliberately no project extraction here (section 7 of the
+            # entity-extraction brief): a tender lot is a procurement
+            # instrument, not a physical project — TenderDetails.lot/
+            # opportunity_type already capture it correctly; forcing it
+            # into `projects` would misclassify a program as a project.
+            objects = self._parse_lots(raw_record, text, company_candidates)
 
             if objects:
                 return objects
 
         if page_source_id == "hintco_news":
-            objects = self._parse_news_items(raw_record, text)
+            objects = self._parse_news_items(
+                raw_record, text, company_candidates
+            )
 
             if objects:
                 return objects
@@ -166,6 +177,7 @@ class HintcoParser(BaseParser):
         self,
         raw_record: dict[str, Any],
         text: str,
+        company_candidates: list[str],
     ) -> list[IntelligenceObject]:
         headings = list(LOT_HEADING_PATTERN.finditer(text))
         objects: list[IntelligenceObject] = []
@@ -200,7 +212,7 @@ class HintcoParser(BaseParser):
                 collector_name="HintcoCollector",
                 tender_type=default_tender_type,
                 products=self._split_products(products),
-                companies=self.extract_keywords(body, COMPANY_CANDIDATES),
+                companies=self.extract_keywords(body, company_candidates),
                 tender=TenderDetails(
                     buyer="Hintco",
                     opportunity_type=default_tender_type,
@@ -287,10 +299,12 @@ class HintcoParser(BaseParser):
         self,
         raw_record: dict[str, Any],
         text: str,
+        company_candidates: list[str],
     ) -> list[IntelligenceObject]:
         chunks = re.split(r"Read more", text, flags=re.IGNORECASE)
         objects: list[IntelligenceObject] = []
         seen_titles: set[str] = set()
+        project_candidates = get_project_candidates()
 
         for chunk in chunks:
             chunk = chunk.strip()
@@ -305,10 +319,13 @@ class HintcoParser(BaseParser):
 
             seen_titles.add(title.casefold())
 
-            event = self._detect_news_event(f"{title} {body}")
-            offtake = self.detect_offtake(f"{title} {body}")
-            companies = self.extract_keywords(
-                f"{title} {body}", COMPANY_CANDIDATES
+            combined_text = f"{title} {body}"
+            event = self._detect_news_event(combined_text)
+            offtake = self.detect_offtake(combined_text)
+            companies = self.extract_keywords(combined_text, company_candidates)
+            projects = self.extract_keywords(combined_text, project_candidates)
+            relationships = self.detect_relationships(
+                combined_text, companies, projects
             )
 
             intelligence_object = self.build_intelligence_object(
@@ -324,6 +341,12 @@ class HintcoParser(BaseParser):
                 ),
                 offtake=offtake,
                 companies=companies,
+                projects=projects,
+                metadata=(
+                    {"relationship_candidates": relationships}
+                    if relationships
+                    else {}
+                ),
             )
 
             if offtake is not None:

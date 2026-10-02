@@ -180,6 +180,17 @@ export interface EntityProfile {
   relationships: EntityRelationship[]
 }
 
+export interface IntelligenceSearchResult {
+  intelligence_id: string
+  source_id: string
+  source_organisation: string
+  intelligence_type: string
+  title: string
+  source_url: string
+  published_at: string | null
+  collected_at: string
+}
+
 const BASE = '/api'
 
 async function getJSON<T>(path: string): Promise<T> {
@@ -240,5 +251,9 @@ export const api = {
   searchEntities: (query: string, entityType?: 'COMPANY' | 'PROJECT') =>
     getJSON<EntitySummary[]>(
       `/entities/search?q=${encodeURIComponent(query)}${entityType ? `&entity_type=${entityType}` : ''}`,
+    ),
+  searchIntelligence: (query: string, limit = 5) =>
+    getJSON<IntelligenceSearchResult[]>(
+      `/intelligence/search?q=${encodeURIComponent(query)}&limit=${limit}`,
     ),
 }

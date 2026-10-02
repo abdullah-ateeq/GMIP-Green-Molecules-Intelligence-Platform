@@ -2232,6 +2232,35 @@ def get_entities(entity_type: str, limit: int = 200) -> list[dict]:
         return [dict(row) for row in rows]
 
 
+def get_entities_with_evidence(entity_type: str, limit: int = 200) -> list[dict]:
+    """
+    Like get_entities(), but only entities with at least one real
+    intelligence mention. A canonical entity can legitimately exist from
+    the seed list before anything has ever mentioned it (useful so a
+    future mention resolves cleanly) — but surfacing an unmentioned
+    entity as if it were a real result, especially for Projects, risks
+    looking like a fabricated/sample record (entity-extraction brief,
+    section 29: "if none are confidently extractable, leave empty").
+    """
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT e.*
+            FROM entities e
+            WHERE e.entity_type = ?
+            AND EXISTS (
+                SELECT 1 FROM entity_mentions m
+                WHERE m.entity_id = e.entity_id
+            )
+            ORDER BY e.canonical_name ASC
+            LIMIT ?
+            """,
+            (entity_type, limit),
+        ).fetchall()
+
+        return [dict(row) for row in rows]
+
+
 def save_entity_mention(
     intelligence_object_id: str,
     entity_id: str | None,
@@ -2499,6 +2528,32 @@ def search_entities(query: str, entity_type: str | None = None, limit: int = 10)
             matches.append(dict(row))
 
     return matches[:limit]
+
+
+def search_intelligence_objects(query: str, limit: int = 10) -> list[dict]:
+    """Case-insensitive title search over persisted intelligence, for
+    global search (section 23-25 of the entity-extraction brief)."""
+    cleaned = query.strip()
+
+    if not cleaned:
+        return []
+
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT
+                intelligence_id, source_id, source_organisation,
+                intelligence_type, title, source_url, published_at,
+                collected_at
+            FROM intelligence_objects
+            WHERE title LIKE ?
+            ORDER BY collected_at DESC
+            LIMIT ?
+            """,
+            (f"%{cleaned}%", limit),
+        ).fetchall()
+
+        return [dict(row) for row in rows]
 
 
 def get_company_profile(entity_id: str) -> dict | None:

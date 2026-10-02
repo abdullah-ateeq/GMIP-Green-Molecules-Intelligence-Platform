@@ -515,8 +515,13 @@ class BaseParser(ABC):
         Find configured keywords inside supplied text.
 
         This is deterministic keyword matching, not AI extraction.
+        Matches on whole-word boundaries, not bare substrings — short
+        candidates (company tickers/abbreviations like "BP", "Nel", "AG")
+        would otherwise false-positive inside unrelated words ("panel"
+        contains "nel", "ABP" contains "BP"). See the entity-extraction
+        brief, section 10.
         """
-        cleaned_text = cls.clean_text(text).casefold()
+        cleaned_text = cls.clean_text(text)
 
         if not cleaned_text:
             return []
@@ -526,10 +531,12 @@ class BaseParser(ABC):
         for keyword in candidate_keywords:
             cleaned_keyword = cls.clean_text(keyword)
 
-            if (
-                cleaned_keyword
-                and cleaned_keyword.casefold() in cleaned_text
-            ):
+            if not cleaned_keyword:
+                continue
+
+            pattern = r"\b" + re.escape(cleaned_keyword) + r"\b"
+
+            if re.search(pattern, cleaned_text, re.IGNORECASE):
                 matches.append(cleaned_keyword)
 
         return cls.normalize_string_list(matches)
@@ -577,6 +584,111 @@ class BaseParser(ABC):
                 else None
             ),
         )
+
+    # (verb phrase, relationship_type, subject_appears_first). A passive
+    # form ("developed by") puts the real subject (the company) on the
+    # right, so subject_appears_first=False swaps which side the pattern
+    # expects the company name on.
+    _COMPANY_PROJECT_RELATIONSHIP_PATTERNS: tuple[tuple[str, str, bool], ...] = (
+        (r"is\s+developing", "develops", True),
+        (r"develops", "develops", True),
+        (r"developed\s+by", "develops", False),
+        (r"operates", "operates", True),
+        (r"operated\s+by", "operates", False),
+        (r"invests?\s+in", "invests_in", True),
+        (r"is\s+investing\s+in", "invests_in", True),
+        (r"supplies", "supplies_to", True),
+        (r"off-?takes?\s+from", "offtakes_from", True),
+    )
+
+    _RELATIONSHIP_GAP = r".{0,60}?"
+
+    @classmethod
+    def detect_relationships(
+        cls,
+        text: str | None,
+        companies: Iterable[str],
+        projects: Iterable[str],
+    ) -> list[dict[str, str]]:
+        """
+        Conservative, deterministic relationship extraction (section 14-16
+        of the entity-extraction brief): a relationship is only recorded
+        when an explicit verb phrase connects two names ALREADY confirmed
+        present in this same card's own extracted companies/projects —
+        never inferred from two names merely co-occurring in the same
+        article. Returns dicts ready to store in IntelligenceObject
+        metadata and later resolved to real entity_ids during entity
+        resolution (relationship creation needs canonical entity_ids,
+        which only exist after resolution — see
+        gmip.entities.backfill.resolve_mentions_for_object()).
+        """
+        cleaned = cls.clean_text(text)
+        company_list = list(dict.fromkeys(companies))
+        project_list = list(dict.fromkeys(projects))
+
+        if not cleaned or not company_list:
+            return []
+
+        results: list[dict[str, str]] = []
+        seen: set[tuple[str, str, str]] = set()
+
+        for company in company_list:
+            for project in project_list:
+                for (
+                    verb_pattern,
+                    relationship_type,
+                    subject_first,
+                ) in cls._COMPANY_PROJECT_RELATIONSHIP_PATTERNS:
+                    left, right = (
+                        (company, project) if subject_first else (project, company)
+                    )
+                    pattern = (
+                        re.escape(left)
+                        + cls._RELATIONSHIP_GAP
+                        + r"\b" + verb_pattern + r"\b"
+                        + cls._RELATIONSHIP_GAP
+                        + re.escape(right)
+                    )
+
+                    if re.search(pattern, cleaned, re.IGNORECASE):
+                        key = (company, relationship_type, project)
+
+                        if key not in seen:
+                            seen.add(key)
+                            results.append(
+                                {
+                                    "subject": company,
+                                    "subject_type": "COMPANY",
+                                    "relationship_type": relationship_type,
+                                    "object": project,
+                                    "object_type": "PROJECT",
+                                }
+                            )
+
+                        break
+
+        for index, company_a in enumerate(company_list):
+            for company_b in company_list[index + 1 :]:
+                pattern = (
+                    re.escape(company_a)
+                    + cls._RELATIONSHIP_GAP
+                    + r"\bpartners?\s+with\b"
+                    + cls._RELATIONSHIP_GAP
+                    + re.escape(company_b)
+                )
+
+                if re.search(pattern, cleaned, re.IGNORECASE):
+                    results.append(
+                        {
+                            "subject": company_a,
+                            "subject_type": "COMPANY",
+                            "relationship_type": "partners_with",
+                            "object": company_b,
+                            "object_type": "COMPANY",
+                        }
+                    )
+
+        return results
 
     # Title text that reliably indicates an error/removed page rather than
     # real content. Deliberately specific phrases (not a bare "not found",

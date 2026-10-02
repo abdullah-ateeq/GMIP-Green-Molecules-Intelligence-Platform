@@ -16,7 +16,7 @@ import json
 import database
 
 from gmip.entities.resolver import resolve_mention
-from gmip.entities.seed import seed_companies
+from gmip.entities.seed import seed_companies, seed_projects
 
 
 def resolve_mentions_for_object(intelligence_object_id: str) -> dict:
@@ -40,6 +40,7 @@ def resolve_mentions_for_object(intelligence_object_id: str) -> dict:
         "project_mentions": 0,
         "projects_created": 0,
         "project_mentions_unresolved": 0,
+        "relationships_created": 0,
     }
 
     if row is None:
@@ -63,6 +64,12 @@ def resolve_mentions_for_object(intelligence_object_id: str) -> dict:
     projects = payload.get("projects") or []
     country_context = countries[0] if countries else None
 
+    # mention text -> resolved entity_id, so relationship candidates
+    # (subject/object given as raw mention text) can be mapped to real
+    # entity_ids below without re-resolving.
+    resolved_companies: dict[str, str] = {}
+    resolved_projects: dict[str, str] = {}
+
     for mention in companies:
         result = resolve_mention("COMPANY", mention)
         database.save_entity_mention(
@@ -80,6 +87,8 @@ def resolve_mentions_for_object(intelligence_object_id: str) -> dict:
 
         if result.entity_id is None:
             stats["company_mentions_unresolved"] += 1
+        else:
+            resolved_companies[mention] = result.entity_id
 
     for mention in projects:
         result = resolve_mention("PROJECT", mention, country=country_context)
@@ -98,6 +107,42 @@ def resolve_mentions_for_object(intelligence_object_id: str) -> dict:
 
         if result.entity_id is None:
             stats["project_mentions_unresolved"] += 1
+        else:
+            resolved_projects[mention] = result.entity_id
+
+    # Relationships (section 14-16 of the entity-extraction brief): only
+    # created when BOTH sides already resolved to a real canonical entity
+    # from THIS object's own mentions — never invented from co-occurrence
+    # alone, and never pointed at an entity this object didn't actually
+    # mention.
+    relationship_candidates = (
+        payload.get("metadata", {}).get("relationship_candidates") or []
+    )
+    entity_maps = {"COMPANY": resolved_companies, "PROJECT": resolved_projects}
+
+    for candidate in relationship_candidates:
+        subject_map = entity_maps.get(candidate.get("subject_type", ""))
+        object_map = entity_maps.get(candidate.get("object_type", ""))
+
+        if subject_map is None or object_map is None:
+            continue
+
+        subject_entity_id = subject_map.get(candidate.get("subject", ""))
+        object_entity_id = object_map.get(candidate.get("object", ""))
+
+        if not subject_entity_id or not object_entity_id:
+            continue
+
+        created = database.save_entity_relationship(
+            subject_entity_id=subject_entity_id,
+            relationship_type=candidate["relationship_type"],
+            object_entity_id=object_entity_id,
+            source_intelligence_object_id=intelligence_object_id,
+            confidence=0.9,
+        )
+
+        if created:
+            stats["relationships_created"] += 1
 
     return stats
 
@@ -109,6 +154,7 @@ def run_entity_backfill(limit: int | None = None) -> dict:
     brief.
     """
     companies_seeded = seed_companies()
+    projects_seeded = seed_projects()
 
     rows = database.get_recent_intelligence_objects(
         limit=limit or 100000
@@ -117,12 +163,14 @@ def run_entity_backfill(limit: int | None = None) -> dict:
     report = {
         "objects_processed": 0,
         "companies_seeded": companies_seeded,
+        "projects_seeded": projects_seeded,
         "company_mentions": 0,
         "companies_created": 0,
         "company_mentions_unresolved": 0,
         "project_mentions": 0,
         "projects_created": 0,
         "project_mentions_unresolved": 0,
+        "relationships_created": 0,
     }
 
     for row in rows:
@@ -136,6 +184,7 @@ def run_entity_backfill(limit: int | None = None) -> dict:
             "project_mentions",
             "projects_created",
             "project_mentions_unresolved",
+            "relationships_created",
         ):
             report[key] += object_stats[key]
 
