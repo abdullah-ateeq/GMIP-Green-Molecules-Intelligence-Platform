@@ -62,7 +62,14 @@ def resolve_mentions_for_object(intelligence_object_id: str) -> dict:
         payload = {}
 
     projects = payload.get("projects") or []
-    country_context = countries[0] if countries else None
+    # Only trust a country as project-identity context when the object
+    # mentions exactly ONE — an article naming several countries (e.g.
+    # one per new member company's home region) gives no reliable way to
+    # tell which country belongs to which specific project, and guessing
+    # the alphabetically-first one produced a real, wrong result (an
+    # Amsterdam-named project "assigned" to India). No country is a
+    # correct, honest outcome of ambiguity, not a bug.
+    country_context = countries[0] if len(countries) == 1 else None
 
     # mention text -> resolved entity_id, so relationship candidates
     # (subject/object given as raw mention text) can be mapped to real

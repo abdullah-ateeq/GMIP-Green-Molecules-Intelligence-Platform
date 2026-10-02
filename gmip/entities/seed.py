@@ -37,6 +37,15 @@ COMPANY_SEED: list[tuple[str, list[str]]] = [
     ("McKinsey & Company", ["McKinsey"]),
     ("Wood plc", []),
     ("Baringa", []),
+    # Confirmed from a real fetched Hydrogen Council article page
+    # ("Six new members join Hydrogen Council..." — see
+    # gmip/enrichment.py), not visible in that article's listing-page
+    # teaser — genuinely new member companies named in the full text.
+    ("EcoLog", []),
+    ("Hydrom", []),
+    ("Mitsui O.S.K Lines", ["Mitsui OSK Lines"]),
+    ("TANAKA", []),
+    ("2JCP", []),
 ]
 
 # Flat canonical-name list for parser-level extract_keywords() candidates
@@ -56,6 +65,9 @@ COMPANY_NAME_CANDIDATES: list[str] = [name for name, _ in COMPANY_SEED]
 PROJECT_SEED: list[tuple[str, list[str]]] = [
     ("NEOM Green Hydrogen Project", ["NGHC Project"]),
     ("HyDeal Ambition", []),
+    # Confirmed from the same real fetched article as the companies above.
+    ("Yanbu Green Hydrogen Hub", []),
+    ("EcoLog Terminal Amsterdam", []),
 ]
 
 PROJECT_NAME_CANDIDATES: list[str] = [name for name, _ in PROJECT_SEED]

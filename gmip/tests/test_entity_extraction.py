@@ -345,6 +345,64 @@ def test_relationship_resolution_is_idempotent(tmp_path, monkeypatch) -> None:
     assert len(relationships) == 1
 
 
+def test_project_country_not_assigned_when_article_mentions_multiple_countries(
+    tmp_path, monkeypatch
+) -> None:
+    """
+    Real bug found via live enrichment: an article naming one country per
+    (different) new-member company gave no reliable signal for which
+    country belongs to which specific project — picking the
+    alphabetically-first country produced a wrong real result ("EcoLog
+    Terminal Amsterdam" assigned to India). No country must be recorded
+    rather than guessing from an ambiguous multi-country article.
+    """
+    _setup_db(tmp_path, monkeypatch)
+
+    obj = IntelligenceObject(
+        title="Six new members join Hydrogen Council",
+        source_organisation="Hydrogen Council",
+        source_id="hydrogen_council",
+        source_url="https://hydrogencouncil.com/en/six-new-members/",
+        intelligence_type=IntelligenceType.NEWS,
+        countries=["India", "Japan", "Oman", "Saudi Arabia"],
+        projects=["EcoLog Terminal Amsterdam"],
+    )
+    database.save_intelligence_object(obj)
+
+    resolve_mentions_for_object(obj.intelligence_id)
+
+    entity = database.get_entity_by_normalized_name(
+        "PROJECT", "ecolog terminal amsterdam"
+    )
+    assert entity is not None
+    assert entity["country"] is None
+
+
+def test_project_country_assigned_when_article_mentions_exactly_one(
+    tmp_path, monkeypatch
+) -> None:
+    _setup_db(tmp_path, monkeypatch)
+
+    obj = IntelligenceObject(
+        title="Single-country project article",
+        source_organisation="Hydrogen Council",
+        source_id="hydrogen_council",
+        source_url="https://hydrogencouncil.com/en/single-country/",
+        intelligence_type=IntelligenceType.NEWS,
+        countries=["Saudi Arabia"],
+        projects=["Yanbu Green Hydrogen Hub"],
+    )
+    database.save_intelligence_object(obj)
+
+    resolve_mentions_for_object(obj.intelligence_id)
+
+    entity = database.get_entity_by_normalized_name(
+        "PROJECT", "yanbu green hydrogen hub"
+    )
+    assert entity is not None
+    assert entity["country"] == "Saudi Arabia"
+
+
 def test_get_entities_with_evidence_excludes_unmentioned_seeded_entities(
     tmp_path, monkeypatch
 ) -> None:
